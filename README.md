@@ -20,11 +20,18 @@ macOS can play to several outputs at once, but every Bluetooth speaker adds its
 own delay, so together they echo. Kodo measures each speaker's delay with a
 short chirp and holds back the faster ones, so everything arrives at once.
 
-## Usage
+## Install
 
-```bash
-./scripts/build-app.sh --install   # builds Kodo.app and copies it to /Applications
-```
+Download `Kodo-<version>.dmg` from
+[Releases](https://github.com/felitrejos/kodo/releases/latest) and drag Kodo
+into Applications.
+
+Kodo isn't notarized, so macOS blocks the first launch. Open it once, then go to
+System Settings → Privacy & Security and click **Open Anyway**.
+
+To build it yourself instead, run `./scripts/build-app.sh --install`.
+
+## Usage
 
 1. Click the Kodo icon in the menu bar and tick the speakers to play through.
 2. Turn Kodo on, then press **Calibrate** with the Mac where you usually listen.
@@ -47,5 +54,6 @@ Turning Kodo off hands audio straight back to macOS.
 Requires Xcode 26 or later. Runs on macOS 15 or later.
 
 ```bash
-swift test   # signal processing and alignment math
+swift test             # signal processing and alignment math
+./scripts/release.sh   # build/Kodo-<version>.dmg
 ```
