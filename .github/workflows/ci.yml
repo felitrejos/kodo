@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # Swift 6.2 (isolated deinit) and the macOS 15 SDK come with Xcode 26.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: swift --version
+      - name: Test
+        run: swift test
+      - name: Build the app bundle
+        run: ./scripts/build-app.sh

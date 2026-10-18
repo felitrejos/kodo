@@ -1,12 +1,30 @@
-# kodo
+<p align="center">
+  <img src="assets/logo.png" alt="Kodo logo: a smiling taiko drum with crossed drumsticks" width="160">
+</p>
 
-> 鼓動: heartbeat. Kodō is also the taiko group known for playing in perfect unison.
+<h1 align="center">Kodo</h1>
 
-Play your Mac's audio through several Bluetooth speakers and the Mac's own
-speakers at the same time, with no echo between them.
+<p align="center">
+  Play your Mac's audio through several speakers at once, in perfect sync.
+</p>
 
-**Status: first working version.** A menu bar app for macOS 15+, untested on
-more than one Bluetooth speaker so far.
+<p align="center">
+  <a href="https://github.com/felitrejos/kodo/actions/workflows/ci.yml"><img src="https://github.com/felitrejos/kodo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/macOS-15%2B-black" alt="macOS 15+">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
+
+> 鼓動 (kodō): heartbeat. Kodō is also the taiko group known for playing in perfect unison.
+
+Kodo sits in the menu bar and sends everything your Mac plays to the built-in
+speakers and your Bluetooth speakers together. It measures how late each one
+is with a short chirp and holds back the faster ones, so they don't echo.
+
+**Status: first working version.** Tested with the MacBook speakers plus one
+Bluetooth speaker.
+
+**Requirements:** macOS 15 or later to run; Xcode 26 or later (Swift 6.2+) to
+build.
 
 ## The problem
 
@@ -74,6 +92,10 @@ build/Kodo.app/Contents/MacOS/Kodo --smoke-test    # run the engine for 3 s, no 
 
 `KodoCore` holds the signal processing and alignment math with no Core Audio
 dependency; `swift test` covers it.
+
+The logo was drawn with the `ip-as-logo` skill and GPT Image 2. After changing
+`assets/logo.png`, run `scripts/make-icon.py` (needs Pillow) to rebuild the app
+icon.
 
 ## Answers so far
 

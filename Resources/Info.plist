@@ -8,6 +8,8 @@
 	<string>Kodo</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.felipetrejos.kodo</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleExecutable</key>
 	<string>Kodo</string>
 	<key>CFBundlePackageType</key>
