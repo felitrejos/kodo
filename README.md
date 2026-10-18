@@ -59,5 +59,6 @@ swift test             # signal processing and alignment math
 ```
 
 Work happens on `dev`. To release, bump `CFBundleShortVersionString` in
-`Resources/Info.plist` and merge into `main`: CI builds the `.dmg` and publishes
-it as a GitHub release.
+`Resources/Info.plist` and open a pull request from `dev` to `main`. Once the
+tests pass and it's merged, CI builds the `.dmg` and publishes it as a GitHub
+release.
