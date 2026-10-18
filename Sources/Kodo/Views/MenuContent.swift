@@ -52,7 +52,9 @@ private struct Header: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Toggle("Play in unison", isOn: Binding(get: { model.isOn }, set: model.setOn))
+            // Closures rather than method references: Swift 6.3's compiler crashes building the
+            // thunk for a main-actor method passed where a plain closure is expected.
+            Toggle("Play in unison", isOn: Binding(get: { model.isOn }, set: { model.setOn($0) }))
                 .toggleStyle(.switch)
                 .labelsHidden()
                 .disabled(model.activeOutputs.isEmpty)
@@ -187,12 +189,14 @@ private struct CalibrationSection: View {
                     Text(progress.output.isEmpty ? "Getting ready…" : "Listening to \(progress.output)…")
                         .font(.callout)
                 }
-                Button("Cancel", action: model.cancelCalibration)
+                Button("Cancel") { model.cancelCalibration() }
                     .controlSize(.small)
             }
         } else {
             VStack(alignment: .leading, spacing: 4) {
-                Button(action: model.calibrate) {
+                Button {
+                    model.calibrate()
+                } label: {
                     Label("Calibrate", systemImage: "waveform.badge.mic")
                         .frame(maxWidth: .infinity)
                 }
