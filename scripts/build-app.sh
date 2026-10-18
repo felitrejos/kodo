@@ -10,7 +10,6 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/Kodo" "$app/Contents/MacOS/Kodo"
 cp Resources/Info.plist "$app/Contents/Info.plist"
-# Regenerate with scripts/make-icon.py after changing assets/logo.png.
 cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 
 # Ad-hoc signing is enough to run locally. macOS ties the microphone and audio capture

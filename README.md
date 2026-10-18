@@ -47,6 +47,5 @@ Turning Kodo off hands audio straight back to macOS.
 Requires Xcode 26 or later. Runs on macOS 15 or later.
 
 ```bash
-swift test                     # signal processing and alignment math
-scripts/make-icon.py           # rebuild the app icon from assets/logo.png (needs Pillow)
+swift test   # signal processing and alignment math
 ```
