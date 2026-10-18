@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Kodo</string>
+	<key>CFBundleDisplayName</key>
+	<string>Kodo</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.felipetrejos.kodo</string>
+	<key>CFBundleExecutable</key>
+	<string>Kodo</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Kodo captures what your Mac plays so it can replay it through all your speakers in sync.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Kodo listens for a short chirp from each speaker to measure its delay. It only uses the microphone while calibrating.</string>
+</dict>
+</plist>
