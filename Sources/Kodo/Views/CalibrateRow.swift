@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct FooterView: View {
+struct CalibrateRow: View {
     let model: KodoModel
 
     var body: some View {
@@ -8,6 +8,7 @@ struct FooterView: View {
             if let progress = model.calibration {
                 ProgressView(value: progress.fraction)
                     .controlSize(.small)
+                    .frame(width: 60)
                 Text(progress.output.isEmpty ? "Getting ready…" : "Listening to \(progress.output)…")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -16,31 +17,31 @@ struct FooterView: View {
                 Button("Cancel", action: cancel)
                     .controlSize(.small)
             } else {
-                Button("Calibrate", systemImage: "waveform.badge.mic", action: calibrate)
-                    .controlSize(.small)
-                    .disabled(model.activeOutputs.count < 2)
-                    .help("Plays a short chirp through each speaker and times it with your Mac's microphone")
-                Text(calibrationNote)
+                Text(note)
                     .font(.caption)
                     .foregroundStyle(model.needsCalibration ? .orange : .secondary)
                     .lineLimit(1)
                 Spacer()
-                MoreMenu(model: model)
+                Button("Calibrate", systemImage: "waveform.badge.mic", action: calibrate)
+                    .controlSize(.small)
+                    .buttonStyle(.glass)
+                    .disabled(model.activeOutputs.count < 2)
+                    .help("Plays a short chirp through each speaker and times it with your Mac's microphone")
             }
         }
     }
 
-    private var calibrationNote: String {
+    private var note: String {
         if model.activeOutputs.count < 2 {
-            return "Add a second speaker to sync"
+            return "Add another speaker to sync"
         }
         if model.needsCalibration {
-            return "New speaker, calibrate to sync"
+            return "Calibrate to line up new speakers"
         }
         guard let date = model.settings.calibratedAt else {
-            return ""
+            return "Calibrated"
         }
-        return "Synced \(date.formatted(.relative(presentation: .named)))"
+        return "Calibrated \(date.formatted(.relative(presentation: .named)))"
     }
 
     private func calibrate() {

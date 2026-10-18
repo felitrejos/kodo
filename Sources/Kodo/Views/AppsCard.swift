@@ -1,17 +1,18 @@
 import SwiftUI
 
-struct AppsSection: View {
+struct AppsCard: View {
     let model: KodoModel
 
     var body: some View {
-        VStack(spacing: Design.rowSpacing) {
-            SectionTitle(title: "Apps")
+        Card {
+            Text("Apps")
+                .bold()
+                .accessibilityAddTraits(.isHeader)
             let apps = model.visibleApps
             if apps.isEmpty {
-                Text("Apps show up here when they play sound.")
+                Text("Apps show up here while they play sound.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: Design.rowHeight, alignment: .leading)
             } else {
                 ForEach(apps) { app in
                     AppRow(model: model, app: app)

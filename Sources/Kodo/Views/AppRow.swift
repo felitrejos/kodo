@@ -5,24 +5,34 @@ struct AppRow: View {
     let app: AudioApp
 
     var body: some View {
-        let isMuted = model.isMuted(app)
-        RowLayout(
-            icon: .app(app.icon),
-            name: app.name,
-            detail: app.isPlaying ? nil : "Not playing",
-            isDimmed: !app.isPlaying,
-            toggle: SoundToggle(
-                title: isMuted ? "Unmute \(app.name)" : "Mute \(app.name)",
-                isOn: !isMuted,
-                level: Double(model.volume(for: app)),
-                offStyle: .red,
-                action: toggleMute)
-        ) {
-            LevelSlider(
-                title: "Volume for \(app.name)",
+        HStack(spacing: 10) {
+            Image(nsImage: app.icon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: Design.appIconSize, height: Design.appIconSize)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(app.name)
+                    .lineLimit(1)
+                if !app.isPlaying {
+                    Text("Paused")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 4)
+            CapsuleSlider(
+                title: app.name,
                 value: Double(model.volume(for: app)),
-                isDimmed: isMuted,
+                isMuted: model.isMuted(app),
+                showsGlyph: true,
+                onToggleMute: toggleMute,
                 onChange: setVolume)
+            .frame(width: Design.rowSliderWidth + 20)
+        }
+        .opacity(app.isPlaying ? 1 : 0.6)
+        .contextMenu {
+            Button("Reset Volume", systemImage: "arrow.counterclockwise", action: reset)
         }
     }
 
@@ -32,5 +42,9 @@ struct AppRow: View {
 
     private func setVolume(_ volume: Double) {
         model.setVolume(Float(volume), for: app)
+    }
+
+    private func reset() {
+        model.reset(app)
     }
 }

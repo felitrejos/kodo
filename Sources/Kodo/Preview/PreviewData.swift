@@ -22,6 +22,7 @@ enum PreviewData {
     static var settings: KodoSettings {
         var settings = KodoSettings()
         settings.selectedOutputs = ["speakers", "klipsch"]
+        settings.hiddenOutputs = ["display"]
         settings.measurements = [
             "speakers": Measurement(latency: 0.2685, spread: 0, strength: 0.37),
             "klipsch": Measurement(latency: 0.2496, spread: 0.0002, strength: 0.21),
@@ -33,7 +34,7 @@ enum PreviewData {
         return settings
     }
 
-    static func model(isOn: Bool = true) -> KodoModel {
-        KodoModel(previewOutputs: [speakers, klipsch, airPods, display], apps: apps, settings: settings, isOn: isOn)
+    static func model(isSyncOn: Bool = true) -> KodoModel {
+        KodoModel(previewOutputs: [speakers, klipsch, airPods, display], apps: apps, settings: settings, isSyncOn: isSyncOn, defaultOutputID: klipsch.id)
     }
 }

@@ -12,14 +12,27 @@ final class KodoModel {
         var fraction: Double
     }
 
+    /// What the engine has to be running, if anything. Rebuilding the engine is only needed
+    /// when this changes; app volumes and mutes change in place.
+    private struct EngineSetup: Equatable {
+        var outputs: [AudioObjectID]
+        /// Speaker Sync captures every app; otherwise only the apps you adjusted.
+        var capturesEverything: Bool
+    }
+
     private(set) var outputs: [AudioDevice] = []
+    private(set) var defaultOutputID: AudioObjectID?
+    /// The current output's own volume, for the slider when Sync is off.
+    private(set) var defaultOutputVolume: Float?
+    private(set) var defaultOutputMuted: Bool?
     /// Every app with an audio connection, playing or not.
     private(set) var apps: [AudioApp] = []
-    private(set) var isOn = false
+    private(set) var isSyncOn = false
     private(set) var calibration: CalibrationProgress?
     /// The last thing that went wrong, shown until the next action succeeds.
     private(set) var problem: String?
     private(set) var launchesAtLogin = SMAppService.mainApp.status == .enabled
+    var showsHiddenOutputs = false
     private(set) var settings = KodoSettings.load() {
         didSet {
             guard !isPreview else {
@@ -39,24 +52,33 @@ final class KodoModel {
 
     @ObservationIgnored private var router: TapRouter?
     @ObservationIgnored private var engine: UnisonEngine?
+    @ObservationIgnored private var runningSetup: EngineSetup?
     @ObservationIgnored private var calibrationTask: Task<Void, Never>?
     @ObservationIgnored private var appWatchTask: Task<Void, Never>?
-    @ObservationIgnored private var deviceListener: AudioObjectPropertyListenerBlock?
+    @ObservationIgnored private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
     @ObservationIgnored private let isPreview: Bool
 
     init() {
         isPreview = false
         outputs = AudioDevice.all().filter(\.isOutput)
+        isSyncOn = settings.syncEnabled && !activeOutputs.isEmpty
+        refreshDefaultOutput()
+        refreshApps()
         listenForDeviceChanges()
+        watchApps()
+        reconcileEngine()
     }
 
     /// Fixed sample data for designing the menu without touching any audio.
-    init(previewOutputs: [AudioDevice], apps: [AudioApp], settings: KodoSettings, isOn: Bool) {
+    init(previewOutputs: [AudioDevice], apps: [AudioApp], settings: KodoSettings, isSyncOn: Bool, defaultOutputID: AudioObjectID?) {
         isPreview = true
         outputs = previewOutputs
         self.apps = apps
         self.settings = settings
-        self.isOn = isOn
+        self.isSyncOn = isSyncOn
+        self.defaultOutputID = defaultOutputID
+        defaultOutputVolume = 0.6
+        defaultOutputMuted = false
         lastHeard = Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Date.now) })
     }
 
@@ -66,9 +88,18 @@ final class KodoModel {
         calibration != nil
     }
 
+    /// Outputs to list: everything connected, minus the ones you hid.
+    var listedOutputs: [AudioDevice] {
+        outputs.filter { showsHiddenOutputs || !isHidden($0) }
+    }
+
+    var hiddenOutputCount: Int {
+        outputs.filter(isHidden).count
+    }
+
     /// Selected outputs that are connected right now, in the order Core Audio lists them.
     var activeOutputs: [AudioDevice] {
-        outputs.filter { settings.selectedOutputs.contains($0.uid) }
+        outputs.filter { settings.selectedOutputs.contains($0.uid) && !isHidden($0) }
     }
 
     var needsCalibration: Bool {
@@ -84,8 +115,17 @@ final class KodoModel {
             }
     }
 
+    /// Whether a speaker is lit: part of the group with Sync on, the Mac's output with it off.
+    func isActive(_ output: AudioDevice) -> Bool {
+        isSyncOn ? isSelected(output) : output.id == defaultOutputID
+    }
+
     func isSelected(_ output: AudioDevice) -> Bool {
         settings.selectedOutputs.contains(output.uid)
+    }
+
+    func isHidden(_ output: AudioDevice) -> Bool {
+        settings.hiddenOutputs.contains(output.uid)
     }
 
     func measurement(for output: AudioDevice) -> Measurement? {
@@ -100,8 +140,20 @@ final class KodoModel {
         settings.trims[output.uid] ?? 0
     }
 
-    func volume(for output: AudioDevice) -> Float {
-        settings.volumes[output.uid] ?? 1
+    /// The slider value for a speaker row: Kodo's own level with Sync on, the device's
+    /// volume with it off.
+    func volume(for output: AudioDevice) -> Float? {
+        if isSyncOn {
+            return settings.volumes[output.uid] ?? 1
+        }
+        return output.id == defaultOutputID ? defaultOutputVolume : nil
+    }
+
+    func isMuted(_ output: AudioDevice) -> Bool {
+        if isSyncOn {
+            return settings.mutedOutputs.contains(output.uid)
+        }
+        return output.id == defaultOutputID && defaultOutputMuted == true
     }
 
     func volume(for app: AudioApp) -> Float {
@@ -112,26 +164,69 @@ final class KodoModel {
         settings.mutedApps.contains(app.id)
     }
 
-    // MARK: - Actions
+    // MARK: - Speaker actions
 
-    func setOn(_ on: Bool) {
+    func setSyncOn(_ on: Bool) {
         problem = nil
-        if on {
-            start()
-        } else {
-            stop()
-        }
+        isSyncOn = on && !activeOutputs.isEmpty
+        settings.syncEnabled = isSyncOn
+        reconcileEngine()
     }
 
-    func toggle(_ output: AudioDevice) {
-        if settings.selectedOutputs.remove(output.uid) == nil {
-            settings.selectedOutputs.insert(output.uid)
+    /// With Sync on, adds or removes the speaker from the group. With it off, plays through it.
+    func choose(_ output: AudioDevice) {
+        problem = nil
+        if isSyncOn {
+            if settings.selectedOutputs.remove(output.uid) == nil {
+                settings.selectedOutputs.insert(output.uid)
+            }
+            if activeOutputs.isEmpty {
+                isSyncOn = false
+            }
+            reconcileEngine()
+        } else {
+            guard !isPreview else {
+                defaultOutputID = output.id
+                return
+            }
+            do {
+                try output.makeDefaultOutput()
+            } catch {
+                problem = "Couldn't switch to \(output.name)."
+            }
         }
-        rebuildIfRunning()
     }
 
     func setVolume(_ volume: Float, for output: AudioDevice) {
-        settings.volumes[output.uid] = volume
+        if isSyncOn {
+            settings.volumes[output.uid] = volume
+            settings.mutedOutputs.remove(output.uid)
+        } else {
+            if defaultOutputMuted == true {
+                defaultOutputMuted = false
+                if !isPreview {
+                    output.setHardwareMute(false)
+                }
+            }
+            defaultOutputVolume = volume
+            if !isPreview {
+                output.setHardwareVolume(volume)
+            }
+        }
+    }
+
+    func toggleMute(_ output: AudioDevice) {
+        if isSyncOn {
+            if settings.mutedOutputs.remove(output.uid) == nil {
+                settings.mutedOutputs.insert(output.uid)
+            }
+            return
+        }
+        let muted = !(defaultOutputMuted ?? false)
+        defaultOutputMuted = muted
+        if !isPreview {
+            output.setHardwareMute(muted)
+        }
     }
 
     func nudge(_ output: AudioDevice, by seconds: Double) {
@@ -143,24 +238,62 @@ final class KodoModel {
         settings.trims[output.uid] = nil
     }
 
+    func setHidden(_ hidden: Bool, for output: AudioDevice) {
+        if hidden {
+            settings.hiddenOutputs.insert(output.uid)
+        } else {
+            settings.hiddenOutputs.remove(output.uid)
+        }
+        if hiddenOutputCount == 0 {
+            showsHiddenOutputs = false
+        }
+        if isSyncOn, activeOutputs.isEmpty {
+            isSyncOn = false
+        }
+        reconcileEngine()
+    }
+
+    func setSampleRate(_ rate: Double, for output: AudioDevice) {
+        do {
+            try output.setNominalSampleRate(rate)
+        } catch {
+            problem = "\(output.name) can't switch to that sample rate right now."
+        }
+        // The engine settled on a shared rate when it started; let it settle again.
+        if engine?.outputs.contains(output) == true {
+            restartEngine()
+        }
+    }
+
+    // MARK: - App actions
+
     func setVolume(_ volume: Float, for app: AudioApp) {
         // Kept even at 100%, so dragging around full volume doesn't keep moving the app
         // between its own tap and the global one.
         settings.appVolumes[app.id] = volume
         // Reaching for the slider means you want to hear it.
         settings.mutedApps.remove(app.id)
-        routeApps()
+        reconcileEngine()
     }
 
     func toggleMute(_ app: AudioApp) {
         if settings.mutedApps.remove(app.id) == nil {
             settings.mutedApps.insert(app.id)
         }
-        routeApps()
+        reconcileEngine()
     }
 
+    /// Puts the app back to normal: full volume, unmuted, untapped.
+    func reset(_ app: AudioApp) {
+        settings.appVolumes[app.id] = nil
+        settings.mutedApps.remove(app.id)
+        reconcileEngine()
+    }
+
+    // MARK: - Calibration
+
     func calibrate() {
-        guard !isCalibrating else {
+        guard !isCalibrating, isSyncOn else {
             return
         }
         problem = nil
@@ -187,51 +320,56 @@ final class KodoModel {
 
     // MARK: - Engine
 
-    private func start() {
+    private var neededSetup: EngineSetup? {
+        if isSyncOn, !activeOutputs.isEmpty {
+            return EngineSetup(outputs: activeOutputs.map(\.id), capturesEverything: true)
+        }
+        guard !adjustedApps().isEmpty, let defaultOutputID, outputs.contains(where: { $0.id == defaultOutputID }) else {
+            return nil
+        }
+        return EngineSetup(outputs: [defaultOutputID], capturesEverything: false)
+    }
+
+    /// Starts, stops, or rebuilds the engine to match what's needed, then routes the apps.
+    private func reconcileEngine() {
         guard !isPreview else {
-            isOn = true
             return
         }
-        guard !activeOutputs.isEmpty else {
-            problem = EngineError.noOutputs.localizedDescription
+        let needed = neededSetup
+        guard needed != runningSetup else {
+            routeApps()
+            return
+        }
+        stopEngine()
+        guard let needed else {
             return
         }
         do {
-            refreshApps()
-            let router = try router ?? TapRouter()
+            let router = try TapRouter(capturesEverything: needed.capturesEverything)
             _ = try router.route(adjustedApps())
+            let engine = try UnisonEngine(outputs: needed.outputs.compactMap { id in outputs.first { $0.id == id } }, taps: router.taps)
             self.router = router
-            let engine = try UnisonEngine(outputs: activeOutputs, taps: router.taps)
             self.engine = engine
             applyMix()
             try engine.start()
-            isOn = true
-            watchApps()
+            runningSetup = needed
         } catch {
-            stop()
+            stopEngine()
+            isSyncOn = false
             problem = error.localizedDescription
         }
     }
 
-    private func stop() {
-        calibrationTask?.cancel()
-        appWatchTask?.cancel()
-        engine = nil
-        router = nil
-        isOn = false
+    private func restartEngine() {
+        stopEngine()
+        reconcileEngine()
     }
 
-    private func rebuildIfRunning() {
-        guard isOn, !isPreview else {
-            return
-        }
+    private func stopEngine() {
         calibrationTask?.cancel()
         engine = nil
-        if activeOutputs.isEmpty {
-            stop()
-        } else {
-            start()
-        }
+        router = nil
+        runningSetup = nil
     }
 
     private func currentDelays() -> [String: Double] {
@@ -248,7 +386,19 @@ final class KodoModel {
     }
 
     private func applyMix() {
-        engine?.apply(delays: currentDelays(), gains: settings.volumes)
+        guard let engine else {
+            return
+        }
+        if runningSetup?.capturesEverything ?? isSyncOn {
+            var gains = settings.volumes
+            for uid in settings.mutedOutputs {
+                gains[uid] = 0
+            }
+            engine.apply(delays: currentDelays(), gains: gains)
+        } else {
+            // A single output needs no delay, and its volume is the device's own.
+            engine.apply(delays: [:], gains: [:])
+        }
         applyAppGains()
     }
 
@@ -283,7 +433,9 @@ final class KodoModel {
         guard let router, let engine else {
             return
         }
-        engine.setGain(1, forInput: 0)
+        if router.capturesEverything {
+            engine.setGain(1, forInput: 0)
+        }
         for app in adjustedApps() {
             guard let input = router.input(for: app.id) else {
                 continue
@@ -302,8 +454,9 @@ final class KodoModel {
         }
     }
 
-    /// Polls while Kodo is on: apps start and stop playing without any notification worth
-    /// trusting, and a helper process joining an adjusted app needs to join its tap.
+    /// Polls once a second: apps start and stop playing without a notification worth
+    /// trusting, a helper process joining an adjusted app needs to join its tap, and the
+    /// volume keys change the output's volume behind Kodo's back.
     private func watchApps() {
         appWatchTask?.cancel()
         appWatchTask = Task { [weak self] in
@@ -315,13 +468,14 @@ final class KodoModel {
                 let before = apps
                 refreshApps()
                 if apps != before {
-                    routeApps()
+                    reconcileEngine()
                 }
+                refreshDefaultOutputVolume()
             }
         }
     }
 
-    // MARK: - Calibration
+    // MARK: - Calibration run
 
     private func runCalibration() async {
         guard await microphoneAllowed() else {
@@ -332,10 +486,7 @@ final class KodoModel {
             problem = "There is no microphone to calibrate with."
             return
         }
-        if engine == nil {
-            start()
-        }
-        guard let engine else {
+        guard let engine, runningSetup?.capturesEverything == true else {
             return
         }
 
@@ -370,26 +521,48 @@ final class KodoModel {
     // MARK: - Devices coming and going
 
     private func listenForDeviceChanges() {
-        var address = AudioObjectID.address(kAudioHardwarePropertyDevices)
-        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            MainActor.assumeIsolated {
-                self?.devicesChanged()
+        for selector in [kAudioHardwarePropertyDevices, kAudioHardwarePropertyDefaultOutputDevice] {
+            var address = AudioObjectID.address(selector)
+            let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    self?.devicesChanged()
+                }
             }
+            listeners.append((address, listener))
+            AudioObjectAddPropertyListenerBlock(.system, &address, .main, listener)
         }
-        deviceListener = listener
-        AudioObjectAddPropertyListenerBlock(.system, &address, .main, listener)
     }
 
     private func devicesChanged() {
         let current = AudioDevice.all().filter(\.isOutput)
-        guard current != outputs else {
-            return
+        if current != outputs {
+            outputs = current
         }
-        outputs = current
+        refreshDefaultOutput()
+        if isSyncOn, activeOutputs.isEmpty {
+            isSyncOn = false
+        }
+        // A speaker that reconnects gets a new object ID, which changes the needed setup.
+        reconcileEngine()
+    }
 
-        // A speaker that reconnects gets a new object ID, so compare IDs, not just UIDs.
-        if isOn, engine?.outputs.map(\.id) != activeOutputs.map(\.id) {
-            rebuildIfRunning()
+    private func refreshDefaultOutput() {
+        let id = AudioDevice.defaultOutputID
+        if id != defaultOutputID {
+            defaultOutputID = id
+        }
+        refreshDefaultOutputVolume()
+    }
+
+    private func refreshDefaultOutputVolume() {
+        let output = outputs.first { $0.id == defaultOutputID }
+        let volume = output?.hardwareVolume
+        if volume != defaultOutputVolume {
+            defaultOutputVolume = volume
+        }
+        let muted = output?.hardwareMute
+        if muted != defaultOutputMuted {
+            defaultOutputMuted = muted
         }
     }
 }

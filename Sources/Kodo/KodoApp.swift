@@ -25,7 +25,8 @@ enum Entry {
     private static func listDevices() {
         for device in AudioDevice.all() {
             let roles = [device.isOutput ? "output" : nil, device.isInput ? "input" : nil].compactMap(\.self)
-            print("\(device.name) [\(device.transport)] \(roles.joined(separator: "+")) @ \(Int(device.nominalSampleRate)) Hz — \(device.uid)")
+            let volume = device.hardwareVolume.map { " volume \(Int($0 * 100))%" } ?? ""
+            print("\(device.name) [\(device.transport)] \(roles.joined(separator: "+")) @ \(Int(device.nominalSampleRate)) Hz\(volume) — \(device.uid)")
         }
         if let microphone = AudioDevice.calibrationMicrophone() {
             print("Calibration microphone: \(microphone.name)")
@@ -40,7 +41,7 @@ struct KodoApp: App {
         MenuBarExtra {
             MenuContent(model: model)
         } label: {
-            Image(systemName: model.isOn ? "dot.radiowaves.left.and.right" : "hifispeaker.2")
+            Image(systemName: model.isSyncOn ? "hifispeaker.2.fill" : "hifispeaker.2")
                 .accessibilityLabel("Kodo")
         }
         .menuBarExtraStyle(.window)

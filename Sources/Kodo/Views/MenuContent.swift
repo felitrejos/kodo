@@ -4,42 +4,32 @@ struct MenuContent: View {
     let model: KodoModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.sectionSpacing) {
+        VStack(alignment: .leading, spacing: Design.cardSpacing) {
             HeaderView(model: model)
-
-            Divider()
-            VStack(spacing: Design.rowSpacing) {
-                SectionTitle(title: "Speakers")
-                ForEach(model.outputs) { output in
-                    SpeakerRow(model: model, output: output)
+            GlassEffectContainer(spacing: Design.cardSpacing) {
+                VStack(spacing: Design.cardSpacing) {
+                    SpeakersCard(model: model)
+                    AppsCard(model: model)
                 }
             }
-
-            if model.isOn {
-                Divider()
-                AppsSection(model: model)
-            }
-
             if let problem = model.problem {
                 Label(problem, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
             }
-
-            Divider()
-            FooterView(model: model)
         }
-        .padding(Design.edgePadding)
+        .padding(Design.outerPadding)
         .frame(width: Design.menuWidth)
-        .animation(Design.animation, value: model.isOn)
+        .animation(Design.animation, value: model.isSyncOn)
     }
 }
 
-#Preview("On") {
+#Preview("Sync on") {
     MenuContent(model: PreviewData.model())
 }
 
-#Preview("Off") {
-    MenuContent(model: PreviewData.model(isOn: false))
+#Preview("Sync off") {
+    MenuContent(model: PreviewData.model(isSyncOn: false))
 }

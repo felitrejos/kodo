@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/felitrejos/kodo/actions/workflows/ci.yml"><img src="https://github.com/felitrejos/kodo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/macOS-15%2B-black" alt="macOS 15+">
+  <img src="https://img.shields.io/badge/macOS-26%2B-black" alt="macOS 26+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
@@ -33,14 +33,15 @@ To build it yourself instead, run `./scripts/build-app.sh --install`.
 
 ## Usage
 
-1. Click the Kodo icon in the menu bar, then click the speaker icon next to each
-   speaker you want to play through.
-2. Turn Kodo on, then press **Calibrate** with the Mac where you usually listen.
-3. Set each speaker's and each app's volume, or click an app's speaker icon to
-   mute it. Right-click a speaker to nudge it earlier or later by ear.
+- **Apps:** every app playing sound gets a volume slider. Click the speaker
+  inside a slider to mute that app. This works with or without Speaker Sync.
+- **Speakers:** with Speaker Sync off, click a speaker to play through it, like
+  Control Center. Turn Sync on, click the speakers you want in the group, then
+  press **Calibrate** with the Mac where you usually listen.
+- **Details:** hover over a speaker and click ⓘ for its connection, sample
+  rate, format, and delay, or to hide it from Kodo.
 
 macOS asks once for system audio recording and once for the microphone.
-Turning Kodo off hands audio straight back to macOS.
 
 ## How it works
 
@@ -54,7 +55,7 @@ Turning Kodo off hands audio straight back to macOS.
 
 ## Development
 
-Requires Xcode 26 or later. Runs on macOS 15 or later.
+Requires Xcode 26 or later. Runs on macOS 26 or later.
 
 ```bash
 swift test             # signal processing and alignment math
