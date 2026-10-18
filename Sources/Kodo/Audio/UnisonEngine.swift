@@ -72,6 +72,7 @@ final class UnisonEngine {
                 bufferGroups: bufferGroups,
                 groupCount: outputs.count,
                 chirp: Chirp.sweep(sampleRate: sampleRate),
+                clicks: ClickTrain.samples(sampleRate: sampleRate),
                 historyFrames: Int(Self.historySeconds * sampleRate))
         } catch {
             AudioHardwareDestroyAggregateDevice(aggregateID)
@@ -130,8 +131,12 @@ final class UnisonEngine {
         self.procID = nil
     }
 
+    /// The longest delay currently applied, in seconds.
+    private(set) var longestDelay = 0.0
+
     /// Applies delays and volumes keyed by device UID. Outputs not in the dictionaries get no delay.
     func apply(delays: [String: Double], gains: [String: Float]) {
+        longestDelay = outputs.map { delays[$0.uid] ?? 0 }.max() ?? 0
         for (group, output) in outputs.enumerated() {
             let frames = Int((delays[output.uid] ?? 0) * sampleRate)
             state.setDelay(frames: frames, gain: gains[output.uid] ?? 1, forGroup: group)
@@ -158,19 +163,29 @@ final class UnisonEngine {
         }
 
         state.chirpGroup.store(group, ordering: .relaxed)
-        state.chirpPhase.store(RenderState.ChirpPhase.requested.rawValue, ordering: .releasing)
+        try await play(.chirp, lasting: Chirp.duration)
+        return state.chirpHostTime.load(ordering: .relaxed)
+    }
 
-        let deadline = ContinuousClock.now + .seconds(Chirp.duration + 2)
-        while state.chirpPhase.load(ordering: .acquiring) != RenderState.ChirpPhase.finished.rawValue {
+    /// Plays the click test through every output at its own delay and volume, in place of the
+    /// captured audio, and returns once the last click has left the slowest output.
+    func playTestClicks() async throws {
+        try await play(.clicks, lasting: Double(ClickTrain.clickCount) * ClickTrain.interval)
+        try await Task.sleep(for: .seconds(longestDelay))
+    }
+
+    private func play(_ signal: RenderState.Signal, lasting seconds: Double) async throws {
+        state.setPhase(.requested, of: signal)
+        // Hand the audio back to the captured mix however this ends, including cancellation.
+        defer { state.setPhase(.idle, of: signal) }
+
+        let deadline = ContinuousClock.now + .seconds(seconds + 2)
+        while state.phase(of: signal) != .finished {
             guard ContinuousClock.now < deadline else {
-                state.chirpPhase.store(RenderState.ChirpPhase.idle.rawValue, ordering: .releasing)
-                throw EngineError.chirpTimedOut
+                throw EngineError.signalTimedOut
             }
             try await Task.sleep(for: .milliseconds(10))
         }
-
-        state.chirpPhase.store(RenderState.ChirpPhase.idle.rawValue, ordering: .releasing)
-        return state.chirpHostTime.load(ordering: .relaxed)
     }
 
     // MARK: - Setup
@@ -213,7 +228,7 @@ enum EngineError: LocalizedError {
     case noCommonSampleRate
     case unexpectedLayout
     case unknownOutput(String)
-    case chirpTimedOut
+    case signalTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -221,7 +236,7 @@ enum EngineError: LocalizedError {
         case .noCommonSampleRate: "These speakers have no sample rate in common."
         case .unexpectedLayout: "Core Audio built the Kodo device differently than expected."
         case .unknownOutput(let name): "\(name) is not part of the current setup."
-        case .chirpTimedOut: "The calibration chirp never finished playing."
+        case .signalTimedOut: "The test sound never finished playing."
         }
     }
 }

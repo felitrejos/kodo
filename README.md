@@ -40,8 +40,11 @@ open build/Kodo.app
 2. Turn Kodo on. macOS asks once for permission to record system audio.
 3. Put the Mac where you usually listen and press **Calibrate**. Each speaker
    plays three short chirps; macOS asks once for the microphone.
-4. If one speaker still sounds early or late from your seat, nudge it in 2 ms
-   steps with − / +.
+4. Press **Test** to hear eight clicks through every speaker at once. Crisp
+   single clicks mean they're aligned; a double tap means one is off. Nudge it
+   in 2 ms steps with − / + and test again.
+5. Click a speaker's volume icon to mute it, for example to hear one speaker
+   on its own.
 
 Turning Kodo off (or quitting it) hands audio straight back to macOS.
 
@@ -69,6 +72,9 @@ build/Kodo.app/Contents/MacOS/Kodo --smoke-test    # run the engine for 3 s, no 
   callback (`MicrophoneRecorder`). Both sides stamp host time, so an FFT
   cross-correlation (`ArrivalDetector`) gives each output's latency. Three runs
   per output, interleaved, combined by median (`Calibrator`, `AlignmentPlan`).
+- **Test.** A train of short 2.5 kHz clicks is fed into the delay line in place
+  of the captured audio, so each speaker plays it through its own delay and
+  volume, just like music.
 - **Reconnects.** Settings are keyed by device UID. When a speaker drops out or
   comes back, the engine rebuilds and reuses the delay it measured last time.
 
@@ -83,7 +89,7 @@ dependency; `swift test` covers it.
   measures at the Mac, and the nudge buttons cover the rest.
 - **AirPlay?** Allowed: it listens 3 s longer when an AirPlay output is in the
   mix, and the 4 s history covers AirPlay's ~2 s buffer. Not tried yet.
-- **UI?** A small menu: speakers, on/off, Calibrate, volume and nudge.
+- **UI?** A small menu: speakers, on/off, Calibrate, Test, volume, mute and nudge.
 
 ## Open questions
 

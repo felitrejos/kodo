@@ -8,7 +8,9 @@ import Synchronization
 /// A torn read is impossible for aligned word-sized values on Apple silicon, and a value that is
 /// one cycle stale is harmless, so they skip the cost of atomics.
 final class RenderState: @unchecked Sendable {
-    enum ChirpPhase: Int {
+    /// Progress of a one-shot signal (the calibration chirp or the click test), handed back and
+    /// forth between the main thread and the audio thread.
+    enum SignalPhase: Int {
         case idle, requested, playing, finished
     }
 
@@ -30,13 +32,22 @@ final class RenderState: @unchecked Sendable {
     private let chirp: UnsafeMutablePointer<Float>
     private let chirpLength: Int
     private var chirpPosition = 0
-    let chirpPhase = Atomic<Int>(ChirpPhase.idle.rawValue)
+    let chirpPhase = Atomic<Int>(SignalPhase.idle.rawValue)
     let chirpGroup = Atomic<Int>(0)
     /// Host time at which the chirp's first frame was handed to the outputs.
     let chirpHostTime = Atomic<UInt64>(0)
 
-    /// - Parameter bufferGroups: For each output buffer the IOProc receives, which output it belongs to.
-    init(bufferGroups groups: [Int], groupCount: Int, chirp samples: [Float], historyFrames: Int) {
+    private let clicks: UnsafeMutablePointer<Float>
+    private let clicksLength: Int
+    private var clicksPosition = 0
+    let clicksPhase = Atomic<Int>(SignalPhase.idle.rawValue)
+
+    /// - Parameters:
+    ///   - bufferGroups: For each output buffer the IOProc receives, which output it belongs to.
+    ///   - chirp: Calibration signal, played on one output with no delay.
+    ///   - clicks: Test signal, fed in place of the captured audio so every output plays it at
+    ///     its own delay, exactly like music.
+    init(bufferGroups groups: [Int], groupCount: Int, chirp samples: [Float], clicks clickSamples: [Float], historyFrames: Int) {
         self.groupCount = groupCount
         delayLine = DelayLine(capacity: historyFrames)
 
@@ -53,6 +64,10 @@ final class RenderState: @unchecked Sendable {
         chirpLength = samples.count
         chirp = .allocate(capacity: samples.count)
         chirp.initialize(from: samples, count: samples.count)
+
+        clicksLength = clickSamples.count
+        clicks = .allocate(capacity: clickSamples.count)
+        clicks.initialize(from: clickSamples, count: clickSamples.count)
     }
 
     deinit {
@@ -61,6 +76,26 @@ final class RenderState: @unchecked Sendable {
         gains.deallocate()
         playedGains.deallocate()
         chirp.deallocate()
+        clicks.deallocate()
+    }
+
+    enum Signal {
+        case chirp, clicks
+    }
+
+    func phase(of signal: Signal) -> SignalPhase {
+        let raw = switch signal {
+        case .chirp: chirpPhase.load(ordering: .acquiring)
+        case .clicks: clicksPhase.load(ordering: .acquiring)
+        }
+        return SignalPhase(rawValue: raw) ?? .idle
+    }
+
+    func setPhase(_ phase: SignalPhase, of signal: Signal) {
+        switch signal {
+        case .chirp: chirpPhase.store(phase.rawValue, ordering: .releasing)
+        case .clicks: clicksPhase.store(phase.rawValue, ordering: .releasing)
+        }
     }
 
     func setDelay(frames: Int, gain: Float, forGroup group: Int) {
@@ -121,6 +156,10 @@ final class RenderState: @unchecked Sendable {
     }
 
     private func captureProgram(from input: UnsafePointer<AudioBufferList>, frameCount: Int) {
+        if feedClicksIfPlaying(frameCount: frameCount) {
+            return
+        }
+
         let inputs = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
         // The aggregate has no input devices, so the only input stream is the tap.
         guard
@@ -147,13 +186,36 @@ final class RenderState: @unchecked Sendable {
         delayLine.writeSilence(frameCount: frameCount - usable)
     }
 
+    /// Writes the next stretch of the click test into the delay line instead of the captured
+    /// audio. Returns false when no test is running.
+    private func feedClicksIfPlaying(frameCount: Int) -> Bool {
+        switch SignalPhase(rawValue: clicksPhase.load(ordering: .acquiring)) {
+        case .requested:
+            clicksPosition = 0
+            clicksPhase.store(SignalPhase.playing.rawValue, ordering: .releasing)
+        case .playing:
+            break
+        default:
+            return false
+        }
+
+        let count = min(frameCount, clicksLength - clicksPosition)
+        delayLine.write(clicks + clicksPosition, frameCount: count, sourceChannels: 1)
+        delayLine.writeSilence(frameCount: frameCount - count)
+        clicksPosition += count
+        if clicksPosition >= clicksLength {
+            clicksPhase.store(SignalPhase.finished.rawValue, ordering: .releasing)
+        }
+        return true
+    }
+
     /// Returns the group the chirp plays on during this cycle, or -1.
     private func startChirpIfRequested(outputTime: UnsafePointer<AudioTimeStamp>) -> Int {
-        switch ChirpPhase(rawValue: chirpPhase.load(ordering: .acquiring)) {
+        switch SignalPhase(rawValue: chirpPhase.load(ordering: .acquiring)) {
         case .requested:
             chirpPosition = 0
             chirpHostTime.store(outputTime.pointee.mHostTime, ordering: .relaxed)
-            chirpPhase.store(ChirpPhase.playing.rawValue, ordering: .releasing)
+            chirpPhase.store(SignalPhase.playing.rawValue, ordering: .releasing)
             return chirpGroup.load(ordering: .relaxed)
         case .playing:
             return chirpGroup.load(ordering: .relaxed)
@@ -173,7 +235,7 @@ final class RenderState: @unchecked Sendable {
         }
         chirpPosition += frameCount
         if chirpPosition >= chirpLength {
-            chirpPhase.store(ChirpPhase.finished.rawValue, ordering: .releasing)
+            chirpPhase.store(SignalPhase.finished.rawValue, ordering: .releasing)
         }
     }
 }

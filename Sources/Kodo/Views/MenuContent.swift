@@ -192,12 +192,20 @@ private struct CalibrationSection: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 4) {
-                Button(action: model.calibrate) {
-                    Label("Calibrate", systemImage: "waveform.badge.mic")
-                        .frame(maxWidth: .infinity)
+                HStack {
+                    Button(action: model.calibrate) {
+                        Label("Calibrate", systemImage: "waveform.badge.mic")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.activeOutputs.count < 2 || model.isTesting)
+
+                    Button(action: model.playTest) {
+                        Label(model.isTesting ? "Playing…" : "Test", systemImage: "metronome")
+                    }
+                    .disabled(model.activeOutputs.isEmpty || model.isTesting)
+                    .help("Play eight clicks through every speaker to check the alignment by ear")
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.activeOutputs.count < 2)
 
                 Text(hint)
                     .font(.caption)
@@ -208,12 +216,15 @@ private struct CalibrationSection: View {
     }
 
     private var hint: String {
+        if model.isTesting {
+            return "Listen for single, crisp clicks. A double tap means one speaker is off; nudge it with − or +."
+        }
         if model.activeOutputs.count < 2 {
             return "Pick two or more speakers to line them up."
         }
         if model.needsCalibration {
             return "Some speakers aren’t measured yet, so they may echo. Calibrate with the Mac where you usually listen."
         }
-        return "Plays a short chirp through each speaker and listens with your Mac's microphone."
+        return "Calibrate plays a chirp through each speaker and times it with your Mac's microphone. Test plays clicks so you can check by ear."
     }
 }
