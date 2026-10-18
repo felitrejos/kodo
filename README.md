@@ -33,16 +33,19 @@ To build it yourself instead, run `./scripts/build-app.sh --install`.
 
 ## Usage
 
-1. Click the Kodo icon in the menu bar and tick the speakers to play through.
+1. Click the Kodo icon in the menu bar, then click the speaker icon next to each
+   speaker you want to play through.
 2. Turn Kodo on, then press **Calibrate** with the Mac where you usually listen.
-3. Fine-tune a speaker by ear with − / +, or mute it from its volume icon.
+3. Set each speaker's and each app's volume, or click an app's speaker icon to
+   mute it. Right-click a speaker to nudge it earlier or later by ear.
 
 macOS asks once for system audio recording and once for the microphone.
 Turning Kodo off hands audio straight back to macOS.
 
 ## How it works
 
-- A muted Core Audio process tap captures everything the Mac plays.
+- A muted Core Audio process tap captures everything the Mac plays. An app you
+  adjust gets a tap of its own, swapped in live without interrupting playback.
 - The tap and the chosen speakers join one private aggregate device, so they
   share a clock and stay aligned over long sessions.
 - Each speaker reads the captured audio from a shared buffer at its own delay.

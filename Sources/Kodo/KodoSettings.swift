@@ -7,8 +7,11 @@ struct KodoSettings: Codable, Equatable {
     /// Manual nudges on top of the measurement, in seconds.
     var trims: [String: Double] = [:]
     var volumes: [String: Float] = [:]
-    /// Muted outputs keep their volume, so unmuting brings back the old level.
-    var mutedOutputs: Set<String> = []
+    /// When the measurements were taken, for the menu's "calibrated 2 days ago".
+    var calibratedAt: Date?
+    /// Per-app volume and mute, keyed by bundle ID. Muted apps keep their volume for later.
+    var appVolumes: [String: Float] = [:]
+    var mutedApps: Set<String> = []
 
     private static let key = "settings"
 
@@ -21,7 +24,9 @@ struct KodoSettings: Codable, Equatable {
         measurements = try container.decodeIfPresent([String: Measurement].self, forKey: .measurements) ?? [:]
         trims = try container.decodeIfPresent([String: Double].self, forKey: .trims) ?? [:]
         volumes = try container.decodeIfPresent([String: Float].self, forKey: .volumes) ?? [:]
-        mutedOutputs = try container.decodeIfPresent(Set<String>.self, forKey: .mutedOutputs) ?? []
+        calibratedAt = try container.decodeIfPresent(Date.self, forKey: .calibratedAt)
+        appVolumes = try container.decodeIfPresent([String: Float].self, forKey: .appVolumes) ?? [:]
+        mutedApps = try container.decodeIfPresent(Set<String>.self, forKey: .mutedApps) ?? []
     }
 
     static func load(from defaults: UserDefaults = .standard) -> KodoSettings {

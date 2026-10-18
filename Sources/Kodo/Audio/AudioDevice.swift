@@ -4,7 +4,7 @@ import Foundation
 /// A hardware output or input as Core Audio reports it right now.
 struct AudioDevice: Identifiable, Hashable, Sendable {
     enum Transport: Sendable {
-        case builtIn, bluetooth, airPlay, usb, other
+        case builtIn, bluetooth, airPlay, usb, display, other
     }
 
     let id: AudioObjectID
@@ -19,13 +19,40 @@ struct AudioDevice: Identifiable, Hashable, Sendable {
     var isInput: Bool { inputChannels > 0 }
 
     var symbolName: String {
-        switch transport {
+        if name.localizedStandardContains("AirPods Max") {
+            return "airpodsmax"
+        }
+        if name.localizedStandardContains("AirPods") {
+            return "airpods"
+        }
+        return switch transport {
         case .builtIn: "laptopcomputer"
-        case .bluetooth: "hifispeaker"
+        case .bluetooth: "hifispeaker.fill"
         case .airPlay: "airplayaudio"
         case .usb: "cable.connector"
-        case .other: "speaker.wave.2"
+        case .display: "display"
+        case .other: "speaker.wave.2.fill"
         }
+    }
+
+    var kindDescription: String {
+        switch transport {
+        case .builtIn: "Built-in"
+        case .bluetooth: "Bluetooth"
+        case .airPlay: "AirPlay"
+        case .usb: "USB"
+        case .display: "Display"
+        case .other: "Speaker"
+        }
+    }
+
+    init(id: AudioObjectID, uid: String, name: String, transport: Transport, outputChannels: Int, inputChannels: Int) {
+        self.id = id
+        self.uid = uid
+        self.name = name
+        self.transport = transport
+        self.outputChannels = outputChannels
+        self.inputChannels = inputChannels
     }
 
     init?(id: AudioObjectID) {
@@ -52,6 +79,7 @@ struct AudioDevice: Identifiable, Hashable, Sendable {
         case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: .bluetooth
         case kAudioDeviceTransportTypeAirPlay: .airPlay
         case kAudioDeviceTransportTypeUSB: .usb
+        case kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypeDisplayPort: .display
         default: .other
         }
     }

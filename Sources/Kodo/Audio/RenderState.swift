@@ -23,9 +23,17 @@ final class RenderState: @unchecked Sendable {
     private let playedGains: UnsafeMutablePointer<Float>
 
     let programMuted = Atomic<Bool>(false)
-    /// Render cycles so far, and the loudest captured sample as raw float bits. Diagnostics only.
+    /// Render cycles so far. Diagnostics only.
     let cycles = Atomic<Int>(0)
-    let capturedPeakBits = Atomic<UInt32>(0)
+
+    /// One input per tap, in the order of the aggregate's tap list: the global tap first,
+    /// then one per app whose volume was changed.
+    static let maximumInputs = 32
+    /// Longest IO buffer handled; anything beyond it in a cycle is rendered as silence.
+    static let maximumFrames = 16_384
+    private let inputGains: UnsafeMutablePointer<Float>
+    private let playedInputGains: UnsafeMutablePointer<Float>
+    private let mix: UnsafeMutablePointer<Float>
 
     private let chirp: UnsafeMutablePointer<Float>
     private let chirpLength: Int
@@ -50,6 +58,13 @@ final class RenderState: @unchecked Sendable {
         playedGains = .allocate(capacity: groupCount)
         playedGains.initialize(repeating: 1, count: groupCount)
 
+        inputGains = .allocate(capacity: Self.maximumInputs)
+        inputGains.initialize(repeating: 1, count: Self.maximumInputs)
+        playedInputGains = .allocate(capacity: Self.maximumInputs)
+        playedInputGains.initialize(repeating: 1, count: Self.maximumInputs)
+        mix = .allocate(capacity: Self.maximumFrames * DelayLine.channelCount)
+        mix.initialize(repeating: 0, count: Self.maximumFrames * DelayLine.channelCount)
+
         chirpLength = samples.count
         chirp = .allocate(capacity: samples.count)
         chirp.initialize(from: samples, count: samples.count)
@@ -61,7 +76,18 @@ final class RenderState: @unchecked Sendable {
         gains.deallocate()
         playedGains.deallocate()
         chirp.deallocate()
+        inputGains.deallocate()
+        playedInputGains.deallocate()
+        mix.deallocate()
     }
+
+    func setGain(_ gain: Float, forInput input: Int) {
+        guard input < Self.maximumInputs else {
+            return
+        }
+        inputGains[input] = gain
+    }
+
 
     func setDelay(frames: Int, gain: Float, forGroup group: Int) {
         delays[group] = min(max(frames, 0), delayLine.capacity - 8_192)
@@ -120,31 +146,39 @@ final class RenderState: @unchecked Sendable {
         cycles.add(1, ordering: .relaxed)
     }
 
+    /// Mixes every tap, each at its own app's volume, into the delay line.
     private func captureProgram(from input: UnsafePointer<AudioBufferList>, frameCount: Int) {
-        let inputs = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
-        // The aggregate has no input devices, so the only input stream is the tap.
-        guard
-            !programMuted.load(ordering: .relaxed),
-            let tap = inputs.first,
-            let samples = tap.mData?.assumingMemoryBound(to: Float.self),
-            tap.mNumberChannels > 0
-        else {
+        guard !programMuted.load(ordering: .relaxed) else {
             delayLine.writeSilence(frameCount: frameCount)
             return
         }
 
-        let available = Int(tap.mDataByteSize) / (MemoryLayout<Float>.size * Int(tap.mNumberChannels))
-        let usable = min(available, frameCount)
-        delayLine.write(samples, frameCount: usable, sourceChannels: Int(tap.mNumberChannels))
+        let frames = min(frameCount, Self.maximumFrames)
+        let channels = DelayLine.channelCount
+        mix.update(repeating: 0, count: frames * channels)
 
-        var peak: Float = 0
-        for index in 0..<usable * Int(tap.mNumberChannels) {
-            peak = max(peak, abs(samples[index]))
+        let inputs = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
+        for (index, buffer) in inputs.enumerated() where index < Self.maximumInputs {
+            guard let samples = buffer.mData?.assumingMemoryBound(to: Float.self), buffer.mNumberChannels > 0 else {
+                continue
+            }
+            let sourceChannels = Int(buffer.mNumberChannels)
+            let available = Int(buffer.mDataByteSize) / (MemoryLayout<Float>.size * sourceChannels)
+            let startGain = playedInputGains[index]
+            let gainStep = (inputGains[index] - startGain) / Float(frames)
+
+            for frame in 0..<min(available, frames) {
+                let gain = startGain + gainStep * Float(frame + 1)
+                let left = samples[frame * sourceChannels]
+                let right = sourceChannels > 1 ? samples[frame * sourceChannels + 1] : left
+                mix[frame * channels] += left * gain
+                mix[frame * channels + 1] += right * gain
+            }
+            playedInputGains[index] = inputGains[index]
         }
-        if peak > Float(bitPattern: capturedPeakBits.load(ordering: .relaxed)) {
-            capturedPeakBits.store(peak.bitPattern, ordering: .relaxed)
-        }
-        delayLine.writeSilence(frameCount: frameCount - usable)
+
+        delayLine.write(mix, frameCount: frames, sourceChannels: channels)
+        delayLine.writeSilence(frameCount: frameCount - frames)
     }
 
     /// Returns the group the chirp plays on during this cycle, or -1.
