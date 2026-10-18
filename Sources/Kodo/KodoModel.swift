@@ -25,8 +25,7 @@ final class KodoModel {
 
     @ObservationIgnored private var tap: SystemAudioTap?
     @ObservationIgnored private var engine: UnisonEngine?
-    /// Calibration or the click test; only one plays at a time.
-    @ObservationIgnored private var signalTask: Task<Void, Never>?
+    @ObservationIgnored private var calibrationTask: Task<Void, Never>?
     @ObservationIgnored private var deviceListener: AudioObjectPropertyListenerBlock?
 
     init() {
@@ -35,8 +34,6 @@ final class KodoModel {
     }
 
     // MARK: - State for the menu
-
-    private(set) var isTesting = false
 
     var isCalibrating: Bool {
         calibration != nil
@@ -113,23 +110,15 @@ final class KodoModel {
     }
 
     func calibrate() {
-        guard !isCalibrating, !isTesting else {
+        guard !isCalibrating else {
             return
         }
         problem = nil
-        signalTask = Task { await runCalibration() }
+        calibrationTask = Task { await runCalibration() }
     }
 
     func cancelCalibration() {
-        signalTask?.cancel()
-    }
-
-    func playTest() {
-        guard !isCalibrating, !isTesting else {
-            return
-        }
-        problem = nil
-        signalTask = Task { await runTest() }
+        calibrationTask?.cancel()
     }
 
     // MARK: - Engine
@@ -154,7 +143,7 @@ final class KodoModel {
     }
 
     private func stop() {
-        signalTask?.cancel()
+        calibrationTask?.cancel()
         engine = nil
         tap = nil
         isOn = false
@@ -164,7 +153,7 @@ final class KodoModel {
         guard isOn else {
             return
         }
-        signalTask?.cancel()
+        calibrationTask?.cancel()
         engine = nil
         if activeOutputs.isEmpty {
             stop()
@@ -222,25 +211,6 @@ final class KodoModel {
             if !missed.isEmpty {
                 problem = "Couldn't hear \(missed.formatted(.list(type: .and))). Turn it up or move it closer, then try again."
             }
-        } catch is CancellationError {
-            // Stopped or rebuilt on purpose; nothing to report.
-        } catch {
-            problem = error.localizedDescription
-        }
-    }
-
-    private func runTest() async {
-        if engine == nil {
-            start()
-        }
-        guard let engine else {
-            return
-        }
-
-        isTesting = true
-        defer { isTesting = false }
-        do {
-            try await engine.playTestClicks()
         } catch is CancellationError {
             // Stopped or rebuilt on purpose; nothing to report.
         } catch {

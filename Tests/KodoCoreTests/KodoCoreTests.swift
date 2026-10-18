@@ -124,18 +124,3 @@ struct DelayLineTests {
         #expect(line.sample(channel: 0, framesAgo: 5) == 0)
     }
 }
-
-struct ClickTrainTests {
-    @Test func spacesClicksEvenlyWithSilenceBetween() {
-        let samples = ClickTrain.samples(sampleRate: 48_000)
-        let interval = 24_000
-
-        #expect(samples.count == ClickTrain.clickCount * interval)
-        for index in 0..<ClickTrain.clickCount {
-            let start = index * interval
-            #expect(samples[start + 1..<start + 100].contains { abs($0) > 0.1 })
-            #expect(samples[start + 1_000..<start + interval].allSatisfy { $0 == 0 })
-        }
-        #expect(samples.allSatisfy { abs($0) <= ClickTrain.amplitude })
-    }
-}
