@@ -57,3 +57,7 @@ Requires Xcode 26 or later. Runs on macOS 15 or later.
 swift test             # signal processing and alignment math
 ./scripts/release.sh   # build/Kodo-<version>.dmg
 ```
+
+Work happens on `dev`. To release, bump `CFBundleShortVersionString` in
+`Resources/Info.plist` and merge into `main`: CI builds the `.dmg` and publishes
+it as a GitHub release.

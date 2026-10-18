@@ -1,0 +1,43 @@
+name: Release
+
+# Every push to main publishes the version in Resources/Info.plist as a GitHub release,
+# unless that version is already released. To release, bump the version on dev and merge.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check whether this version is new
+        run: |
+          version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "v$version is already released; nothing to do."
+            echo "NEW=false" >> "$GITHUB_ENV"
+          else
+            echo "NEW=true" >> "$GITHUB_ENV"
+          fi
+      - name: Test
+        if: env.NEW == 'true'
+        run: swift test
+      - name: Build the disk image
+        if: env.NEW == 'true'
+        run: ./scripts/release.sh
+      - name: Publish the release
+        if: env.NEW == 'true'
+        run: |
+          gh release create "v$VERSION" "build/Kodo-$VERSION.dmg" \
+            --target "$GITHUB_SHA" \
+            --title "Kodo $VERSION" \
+            --notes-file .github/release-notes.md \
+            --generate-notes
