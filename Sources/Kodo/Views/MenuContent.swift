@@ -125,14 +125,24 @@ private struct OutputControls: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "speaker.fill")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+            Button(
+                model.isMuted(output) ? "Unmute \(output.name)" : "Mute \(output.name)",
+                systemImage: model.isMuted(output) ? "speaker.slash.fill" : "speaker.fill"
+            ) {
+                model.toggleMute(output)
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .foregroundStyle(model.isMuted(output) ? .orange : .secondary)
+            .frame(width: 16)
+            .help(model.isMuted(output) ? "Unmute" : "Mute")
+
             Slider(
                 value: Binding(get: { Double(model.volume(for: output)) }, set: { model.setVolume(Float($0), for: output) }),
                 in: 0...1
             )
             .controlSize(.small)
+            .opacity(model.isMuted(output) ? 0.4 : 1)
             .accessibilityLabel("Volume for \(output.name)")
 
             NudgeControl(trim: model.trim(for: output)) { seconds in

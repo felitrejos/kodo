@@ -18,6 +18,9 @@ final class RenderState: @unchecked Sendable {
     private let bufferCount: Int
     private let delays: UnsafeMutablePointer<Int>
     private let gains: UnsafeMutablePointer<Float>
+    /// The gain each output actually played at last cycle. Each cycle ramps from it to the
+    /// target, so muting or dragging the slider fades over one buffer instead of clicking.
+    private let playedGains: UnsafeMutablePointer<Float>
 
     let programMuted = Atomic<Bool>(false)
     /// Render cycles so far, and the loudest captured sample as raw float bits. Diagnostics only.
@@ -44,6 +47,8 @@ final class RenderState: @unchecked Sendable {
         delays.initialize(repeating: 0, count: groupCount)
         gains = .allocate(capacity: groupCount)
         gains.initialize(repeating: 1, count: groupCount)
+        playedGains = .allocate(capacity: groupCount)
+        playedGains.initialize(repeating: 1, count: groupCount)
 
         chirpLength = samples.count
         chirp = .allocate(capacity: samples.count)
@@ -54,6 +59,7 @@ final class RenderState: @unchecked Sendable {
         bufferGroups.deallocate()
         delays.deallocate()
         gains.deallocate()
+        playedGains.deallocate()
         chirp.deallocate()
     }
 
@@ -85,10 +91,12 @@ final class RenderState: @unchecked Sendable {
             let group = bufferGroups[bufferIndex]
             let channels = Int(buffer.mNumberChannels)
             let delay = delays[group]
-            let gain = gains[group]
+            let startGain = playedGains[group]
+            let gainStep = (gains[group] - startGain) / Float(frameCount)
 
             for frame in 0..<frameCount {
                 let framesAgo = frameCount - frame + delay
+                let gain = startGain + gainStep * Float(frame + 1)
                 let left = delayLine.sample(channel: 0, framesAgo: framesAgo) * gain
                 let right = delayLine.sample(channel: 1, framesAgo: framesAgo) * gain
                 let chirpSample = group == chirpGroup ? chirpSample(at: frame) : 0
@@ -105,6 +113,9 @@ final class RenderState: @unchecked Sendable {
             }
         }
 
+        for group in 0..<groupCount {
+            playedGains[group] = gains[group]
+        }
         advanceChirp(by: frameCount, playing: chirpGroup >= 0)
         cycles.add(1, ordering: .relaxed)
     }

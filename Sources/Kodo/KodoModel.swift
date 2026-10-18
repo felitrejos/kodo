@@ -64,6 +64,10 @@ final class KodoModel {
         settings.trims[output.uid] ?? 0
     }
 
+    func isMuted(_ output: AudioDevice) -> Bool {
+        settings.mutedOutputs.contains(output.uid)
+    }
+
     func volume(for output: AudioDevice) -> Float {
         settings.volumes[output.uid] ?? 1
     }
@@ -90,6 +94,14 @@ final class KodoModel {
 
     func setVolume(_ volume: Float, for output: AudioDevice) {
         settings.volumes[output.uid] = volume
+        // Reaching for the slider means you want to hear it.
+        settings.mutedOutputs.remove(output.uid)
+    }
+
+    func toggleMute(_ output: AudioDevice) {
+        if settings.mutedOutputs.remove(output.uid) == nil {
+            settings.mutedOutputs.insert(output.uid)
+        }
     }
 
     func nudge(_ output: AudioDevice, by seconds: Double) {
@@ -164,7 +176,11 @@ final class KodoModel {
     }
 
     private func applyMix() {
-        engine?.apply(delays: currentDelays(), gains: settings.volumes)
+        var gains = settings.volumes
+        for uid in settings.mutedOutputs {
+            gains[uid] = 0
+        }
+        engine?.apply(delays: currentDelays(), gains: gains)
     }
 
     private func runCalibration() async {
