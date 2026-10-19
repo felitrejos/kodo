@@ -24,7 +24,7 @@ struct AppRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 } else {
-                    PlayingIndicator(isPlaying: app.isPlaying)
+                    PlayingIndicator(isPlaying: app.isPlaying, animates: model.isMenuOpen)
                 }
             }
             .layoutPriority(1)
