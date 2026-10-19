@@ -281,12 +281,9 @@ final class KodoModel {
     /// The speaker the group follows: its clock drives the others. Kodo picks the wireless
     /// speaker with the most delay, usually the one the rest already wait for, because a
     /// Bluetooth link is the part most likely to crackle when its audio is resampled; wired
-    /// speakers take resampling in stride. You can pick a different one per group.
+    /// speakers take resampling in stride. Fine-tune then lines the rest up with it.
     var leadSpeaker: AudioDevice? {
         let active = activeOutputs
-        if let uid = group.leadUID, let chosen = active.first(where: { $0.uid == uid }) {
-            return chosen
-        }
         let wireless = active.filter { $0.transport == .bluetooth || $0.transport == .airPlay }
         if let slowest = wireless.max(by: { reportedLatency(of: $0) < reportedLatency(of: $1) }) {
             return slowest
@@ -297,10 +294,6 @@ final class KodoModel {
     /// The group's fine-tune results, if they were measured with today's lead.
     private var measurements: [String: Measurement] {
         group.measuredLeadUID == leadSpeaker?.uid ? group.measurements : [:]
-    }
-
-    func isChosenLead(_ output: AudioDevice) -> Bool {
-        group.leadUID == output.uid
     }
 
     private func reportedLatency(of output: AudioDevice) -> Double {
@@ -424,12 +417,6 @@ final class KodoModel {
     }
 
     // MARK: - Speaker actions
-
-    /// Makes a speaker lead its group, or lets Kodo choose again with `nil`.
-    func setLead(_ output: AudioDevice?) {
-        settings.activeGroup.leadUID = output?.uid
-        reconcileEngines()
-    }
 
     func setSyncOn(_ on: Bool) {
         problem = nil

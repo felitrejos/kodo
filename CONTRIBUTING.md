@@ -64,7 +64,7 @@ delay buffers carry on.
 **Keeping speakers in step.** All outputs and taps join one private aggregate
 device, which puts them on a single clock. Drift compensation resamples every
 member except the clock device, so they stay aligned over long sessions. The
-clock is the group's lead speaker: by default the wireless speaker with the
+clock is the group's lead speaker, which Kodo always picks: the wireless speaker with the
 most delay, because a Bluetooth link is the part most likely to crackle when
 its audio is resampled, while wired speakers take resampling in stride. Groups
 with a wireless speaker also get a 1024-frame IO buffer for slack. Kodo watches
