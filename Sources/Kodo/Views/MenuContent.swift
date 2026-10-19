@@ -26,6 +26,8 @@ struct MenuContent: View {
         .padding(Design.outerPadding)
         .frame(width: Design.menuWidth)
         .animation(Design.animation, value: model.isSyncOn)
+        .onAppear { model.setMenuOpen(true) }
+        .onDisappear { model.setMenuOpen(false) }
     }
 }
 

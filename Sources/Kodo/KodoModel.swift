@@ -64,8 +64,9 @@ final class KodoModel {
     private(set) var kodoOutput: AudioDevice?
     private(set) var kodoOutputStatus: KodoOutput.Status
     private(set) var isInstallingKodoOutput = false
-    /// Each output's own volume and mute, where it has them, read once a second so the
-    /// sliders follow the volume keys and Control Center.
+    /// Each output's own volume and mute, where it has them, so the sliders follow the volume
+    /// keys and Control Center: read once a second while the menu is open, and kept current
+    /// for the Mac's output by a listener.
     private(set) var hardwareVolumes: [AudioObjectID: Float] = [:]
     private(set) var hardwareMutes: [AudioObjectID: Bool] = [:]
     /// Every app with an audio connection, playing or not.
@@ -77,6 +78,9 @@ final class KodoModel {
     /// When Keep in Sync last listened, and what it found.
     private(set) var lastSyncCheck: (date: Date, result: SyncChecker.Result)?
     var showsHiddenOutputs = false
+    /// Whether the menu is showing. While it's closed nothing animates and Kodo looks in on
+    /// apps less often, since there's nothing to show.
+    private(set) var isMenuOpen = false
     var showsHiddenApps = false
     private(set) var settings = KodoSettings.load() {
         didSet {
@@ -668,6 +672,14 @@ final class KodoModel {
             followedVolume = volume
             followedMute = muted
         }
+        // The menu bar icon and the output's slider show these, and with the menu closed
+        // this listener is what keeps them current.
+        if let muted, hardwareMutes[defaultOutputID] != muted {
+            hardwareMutes[defaultOutputID] = muted
+        }
+        if let volume, hardwareVolumes[defaultOutputID] != volume {
+            hardwareVolumes[defaultOutputID] = volume
+        }
         guard isSyncPlaying, let volume, let previous = followedVolume else {
             return
         }
@@ -1208,24 +1220,46 @@ final class KodoModel {
         }
     }
 
-    /// Polls once a second: apps start and stop playing without a notification worth
-    /// trusting, a helper process joining an adjusted app needs to join its tap, and the
-    /// volume keys change the output's volume behind Kodo's back.
+    func setMenuOpen(_ open: Bool) {
+        guard open != isMenuOpen, !isPreview else {
+            return
+        }
+        isMenuOpen = open
+        if open {
+            appsMayHaveChanged()
+            refreshHardwareLevels()
+        }
+        watchApps()
+    }
+
+    /// Apps starting and stopping playback come without a notification worth trusting, so
+    /// Kodo looks: every second while the menu shows them, every few seconds otherwise.
+    /// Processes coming and going don't wait for that; a listener catches them at once, so
+    /// a new helper of an adjusted app joins its tap right away.
     private func watchApps() {
         appWatchTask?.cancel()
+        let interval: Duration = isMenuOpen ? .seconds(1) : .seconds(5)
         appWatchTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: interval)
                 guard let self, !Task.isCancelled else {
                     return
                 }
-                let before = apps
-                refreshApps()
-                if apps != before {
-                    reconcileEngines()
+                appsMayHaveChanged()
+                if isMenuOpen {
+                    // The sliders follow changes made in Control Center. With the menu
+                    // closed nothing shows them, and opening it reads them fresh.
+                    refreshHardwareLevels()
                 }
-                refreshHardwareLevels()
             }
+        }
+    }
+
+    private func appsMayHaveChanged() {
+        let before = apps
+        refreshApps()
+        if apps != before {
+            reconcileEngines()
         }
     }
 
@@ -1309,6 +1343,15 @@ final class KodoModel {
             listeners.append((address, listener))
             AudioObjectAddPropertyListenerBlock(.system, &address, .main, listener)
         }
+        // An app opening a new audio process, like a browser starting a tab's helper.
+        var address = AudioObjectID.address(kAudioHardwarePropertyProcessObjectList)
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                self?.appsMayHaveChanged()
+            }
+        }
+        listeners.append((address, listener))
+        AudioObjectAddPropertyListenerBlock(.system, &address, .main, listener)
     }
 
     /// A speaker that reconnects gets a new object ID, which changes the needed setups, so

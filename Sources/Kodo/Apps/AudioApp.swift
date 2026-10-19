@@ -11,10 +11,20 @@ struct AudioApp: Identifiable, Equatable {
     let processes: [AudioObjectID]
     let isPlaying: Bool
 
-    var icon: NSImage {
+    /// Loaded once per app: asking the workspace builds a fresh image every time, and a row
+    /// that redraws would load it from disk again.
+    @MainActor var icon: NSImage {
         guard let bundleURL else {
-            return NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil) ?? NSImage()
+            return Self.placeholderIcon
         }
-        return NSWorkspace.shared.icon(forFile: bundleURL.path)
+        if let icon = Self.icons[bundleURL] {
+            return icon
+        }
+        let icon = NSWorkspace.shared.icon(forFile: bundleURL.path)
+        Self.icons[bundleURL] = icon
+        return icon
     }
+
+    @MainActor private static var icons: [URL: NSImage] = [:]
+    @MainActor private static let placeholderIcon = NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil) ?? NSImage()
 }

@@ -130,6 +130,12 @@ over one buffer, so the moves don't click.
 - Core Audio dictionary flags are numbers, as the headers document. A Swift
   `Bool` bridges to a `CFBoolean`, which some keys silently ignore.
 - One type per file, and SwiftUI uses only macOS 26 APIs, Liquid Glass included.
+- Keep the menu cheap. The menu bar panel measures and animates its own size on
+  every SwiftUI update, so anything that changes on a timer redraws the whole
+  panel; a repeating SwiftUI animation once kept Kodo at 20% CPU. Put
+  continuous animation in AppKit, as `PlayingIndicator` does, and let nothing
+  move while the menu is closed (`KodoModel.isMenuOpen`). With the menu closed,
+  Kodo should sit well under 1% CPU while Sync plays.
 - Give `Binding(get:set:)` a closure, `set: { model.choose($0) }`, never a bare
   method like `set: model.choose`. Swift 6.3, which CI uses, crashes while
   building the conversion for a main-actor method passed that way.
