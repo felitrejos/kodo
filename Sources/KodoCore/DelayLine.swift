@@ -7,7 +7,8 @@ public final class DelayLine: @unchecked Sendable {
     /// How many frames of history are kept, which bounds the longest usable delay.
     public let capacity: Int
     private let storage: UnsafeMutablePointer<Float>
-    private var framesWritten = 0
+    /// Every frame ever written, which numbers the frames for `sample(channel:atFrame:)`.
+    public private(set) var framesWritten = 0
 
     public init(capacity: Int) {
         self.capacity = capacity
@@ -43,6 +44,16 @@ public final class DelayLine: @unchecked Sendable {
             storage[slot + 1] = 0
             framesWritten += 1
         }
+    }
+
+    /// One sample by its frame number, or silence once it has left the history. Safe to call
+    /// from another thread for frames well behind the newest one.
+    public func sample(channel: Int, atFrame frame: Int) -> Float {
+        let newest = framesWritten
+        guard frame >= 0, frame < newest, frame >= newest - capacity else {
+            return 0
+        }
+        return storage[(frame % capacity) * Self.channelCount + channel % Self.channelCount]
     }
 
     /// One sample from the history. `framesAgo` 1 is the newest frame written.

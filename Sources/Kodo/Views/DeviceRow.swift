@@ -69,6 +69,9 @@ struct DeviceRow: View {
         if model.isSyncOn, model.isSelected(output), let delay = model.delay(for: output), delay >= 0.0005 {
             return "\(output.kindDescription) · waits \((delay * 1000).formatted(.number.precision(.fractionLength(0)))) ms"
         }
+        if model.isSyncOn, model.activeOutputs.count > 1, model.leadSpeaker == output {
+            return "\(output.kindDescription) · leads"
+        }
         return output.kindDescription
     }
 

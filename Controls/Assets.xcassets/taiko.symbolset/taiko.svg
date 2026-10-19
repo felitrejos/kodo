@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="3300" height="2200">
+ <!--glyph: "taiko", Kodo's drum-->
+ <g id="Notes">
+  <text style="stroke:none;fill:black;font-family:sans-serif;font-size:13;" transform="matrix(1 0 0 1 263 322)">Template v.3.0</text>
+ </g>
+ <g id="Guides">
+  <line id="Baseline-S" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="696" y2="696"/>
+  <line id="Capline-S" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="625.541" y2="625.541"/>
+  <line id="Baseline-M" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1126" y2="1126"/>
+  <line id="Capline-M" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1055.54" y2="1055.54"/>
+  <line id="Baseline-L" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1556" y2="1556"/>
+  <line id="Capline-L" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1485.54" y2="1485.54"/>
+  <line id="left-margin-Regular-M" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1388.08" x2="1388.08" y1="1030.79" y2="1150.12"/>
+  <line id="right-margin-Regular-M" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1469.52" x2="1469.52" y1="1030.79" y2="1150.12"/>
+ </g>
+ <g id="Symbols">
+  <g id="Regular-M">
+   <path d="M1396.40 1088.86 C1396.40 1093.33 1410.91 1096.96 1428.80 1096.96 C1446.69 1096.96 1461.20 1093.33 1461.20 1088.86 C1465.52 1100.74 1463.36 1116.40 1454.72 1122.34 C1441.76 1128.82 1415.84 1128.82 1402.88 1122.34 C1394.24 1116.40 1392.08 1100.74 1396.40 1088.86 Z"/>
+   <path d="M1461.20 1082.92 C1461.20 1087.39 1446.69 1091.02 1428.80 1091.02 C1410.91 1091.02 1396.40 1087.39 1396.40 1082.92 C1396.40 1078.45 1410.91 1074.82 1428.80 1074.82 C1446.69 1074.82 1461.20 1078.45 1461.20 1082.92 Z"/>
+   <path d="M1400.53 1047.45 L1440.49 1071.21 C1442.67 1072.50 1445.49 1071.78 1446.79 1069.61 C1448.08 1067.43 1447.36 1064.61 1445.19 1063.31 L1405.23 1039.55 C1403.05 1038.26 1400.23 1038.98 1398.93 1041.15 C1397.64 1043.33 1398.36 1046.15 1400.53 1047.45 Z"/>
+   <path d="M1452.37 1039.55 L1412.41 1063.31 C1410.24 1064.61 1409.52 1067.43 1410.81 1069.61 C1412.11 1071.78 1414.93 1072.50 1417.11 1071.21 L1457.07 1047.45 C1459.24 1046.15 1459.96 1043.33 1458.67 1041.15 C1457.37 1038.98 1454.55 1038.26 1452.37 1039.55 Z"/>
+  </g>
+ </g>
+</svg>

@@ -27,6 +27,9 @@ jobs:
           else
             echo "NEW=true" >> "$GITHUB_ENV"
           fi
+      - name: Install XcodeGen
+        if: env.NEW == 'true'
+        run: brew install xcodegen
       - name: Test
         if: env.NEW == 'true'
         run: swift test

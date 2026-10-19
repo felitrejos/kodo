@@ -12,5 +12,7 @@ enum Design {
     static let appIconSize: CGFloat = 28
     static let sliderHeight: CGFloat = 24
     static let rowSliderWidth: CGFloat = 132
+    /// Narrower than a speaker's, so app names get the room they need.
+    static let appSliderWidth: CGFloat = 124
     static let animation = Animation.snappy(duration: 0.25)
 }

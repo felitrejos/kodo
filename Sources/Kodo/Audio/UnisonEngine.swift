@@ -21,20 +21,27 @@ final class UnisonEngine {
     let outputs: [AudioDevice]
     let sampleRate: Double
     private let aggregateID: AudioObjectID
+    /// The device whose clock the others follow.
+    let clockDevice: AudioDevice
+    private var overloadListener: AudioObjectPropertyListenerBlock?
     private let state: RenderState
     private var procID: AudioDeviceIOProcID?
     /// Rates the outputs ran at before Kodo switched them, restored on teardown.
     private let originalSampleRates: [AudioDevice: Double]
 
     /// - Parameter taps: The global tap first, then any per-app taps; see `setTaps(_:)`.
-    init(outputs: [AudioDevice], taps: [SystemAudioTap]) throws {
+    /// - Parameters:
+    ///   - clockUID: The device the others follow. Nil picks one.
+    ///   - bufferFrames: The IO buffer size to ask for. Nil keeps the system's.
+    init(outputs: [AudioDevice], taps: [SystemAudioTap], clockUID: String? = nil, bufferFrames: UInt32? = nil) throws {
         guard !outputs.isEmpty else {
             throw EngineError.noOutputs
         }
 
         // The built-in speakers have the steadiest clock and the lowest latency, so they make a
         // good reference. Bluetooth devices drift and get resampled against it.
-        let clockDevice = outputs.first { $0.transport == .builtIn } ?? outputs[0]
+        let clockDevice = outputs.first { $0.uid == clockUID } ?? outputs.first { $0.transport == .builtIn } ?? outputs[0]
+        self.clockDevice = clockDevice
         let originalSampleRates = Dictionary(uniqueKeysWithValues: outputs.map { ($0, $0.nominalSampleRate) })
         self.originalSampleRates = originalSampleRates
         do {
@@ -52,7 +59,9 @@ final class UnisonEngine {
             // CFBoolean, which the drift key silently ignores, leaving the speaker uncorrected.
             kAudioAggregateDeviceIsPrivateKey: 1,
             kAudioAggregateDeviceIsStackedKey: 0,
-            kAudioAggregateDeviceTapAutoStartKey: 1,
+            // Auto-start would hold the engine until a tapped app makes a sound, so in a quiet
+            // room the fine-tune chirp never got to play.
+            kAudioAggregateDeviceTapAutoStartKey: 0,
             kAudioAggregateDeviceSubDeviceListKey: outputs.map { output in
                 [
                     kAudioSubDeviceUIDKey: output.uid,
@@ -74,6 +83,9 @@ final class UnisonEngine {
         self.aggregateID = aggregateID
         self.outputs = outputs
 
+        if let bufferFrames {
+            try? aggregateID.write(kAudioDevicePropertyBufferFrameSize, bufferFrames)
+        }
         do {
             let bufferGroups = try Self.bufferGroups(aggregateID: aggregateID, outputs: outputs)
             state = RenderState(
@@ -112,6 +124,10 @@ final class UnisonEngine {
         guard let procID else {
             throw AudioError(operation: "Starting playback", status: kAudioHardwareUnspecifiedError)
         }
+        let listener = Self.overloadCounter(for: state)
+        var overloadAddress = AudioObjectID.address(kAudioDeviceProcessorOverload)
+        AudioObjectAddPropertyListenerBlock(aggregateID, &overloadAddress, DispatchQueue.global(qos: .utility), listener)
+        overloadListener = listener
         do {
             try check(AudioDeviceStart(aggregateID, procID), "Starting playback")
         } catch {
@@ -129,9 +145,21 @@ final class UnisonEngine {
         }
     }
 
+    /// Built outside the main actor for the same reason as `renderBlock(for:)`.
+    private nonisolated static func overloadCounter(for state: RenderState) -> AudioObjectPropertyListenerBlock {
+        { _, _ in
+            state.overloads.add(1, ordering: .relaxed)
+        }
+    }
+
     func stop() {
         guard let procID else {
             return
+        }
+        if let overloadListener {
+            var overloadAddress = AudioObjectID.address(kAudioDeviceProcessorOverload)
+            AudioObjectRemovePropertyListenerBlock(aggregateID, &overloadAddress, DispatchQueue.global(qos: .utility), overloadListener)
+            self.overloadListener = nil
         }
         AudioDeviceStop(aggregateID, procID)
         AudioDeviceDestroyIOProcID(aggregateID, procID)
@@ -144,6 +172,17 @@ final class UnisonEngine {
             let frames = Int((delays[output.uid] ?? 0) * sampleRate)
             state.setDelay(frames: frames, gain: gains[output.uid] ?? 1, forGroup: group)
         }
+    }
+
+    /// How the engine is holding up: cycles so far, glitches in the sample timeline, and
+    /// overloads Core Audio reported.
+    var health: (cycles: Int, discontinuities: Int, overloads: Int, bufferFrames: UInt32) {
+        (
+            state.cycles.load(ordering: .relaxed),
+            state.discontinuities.load(ordering: .relaxed),
+            state.overloads.load(ordering: .relaxed),
+            (try? aggregateID.read(kAudioDevicePropertyBufferFrameSize, default: UInt32(0))) ?? 0
+        )
     }
 
     var diagnostics: (cycles: Int, inputStreams: [Int], outputStreams: [Int]) {
@@ -173,6 +212,29 @@ final class UnisonEngine {
 
     func setGain(_ gain: Float, forInput input: Int) {
         state.setGain(gain, forInput: input)
+    }
+
+    /// What Kodo played, mixed to mono and before any speaker's delay, for the stretch that
+    /// reached the outputs starting at `hostTime`. Nil if it's no longer in the history.
+    func program(from hostTime: UInt64, seconds: Double) -> [Float]? {
+        var anchorTime: UInt64
+        var anchorFrame: Int
+        repeat {
+            anchorTime = state.cycleHostTime.load(ordering: .acquiring)
+            anchorFrame = state.cycleStartFrame.load(ordering: .relaxed)
+        } while anchorTime != state.cycleHostTime.load(ordering: .acquiring)
+
+        let offset = (Double(AudioConvertHostTimeToNanos(hostTime)) - Double(AudioConvertHostTimeToNanos(anchorTime))) / 1e9
+        let start = anchorFrame + Int((offset * sampleRate).rounded())
+        let count = Int(seconds * sampleRate)
+        let line = state.delayLine
+        // Stay clear of the oldest frames, which the audio thread is about to overwrite.
+        guard start >= line.framesWritten - line.capacity + Int(sampleRate * 0.5), start + count <= line.framesWritten else {
+            return nil
+        }
+        return (start..<start + count).map { frame in
+            (line.sample(channel: 0, atFrame: frame) + line.sample(channel: 1, atFrame: frame)) / 2
+        }
     }
 
     /// Silences the captured audio so calibration chirps play into a quiet room.

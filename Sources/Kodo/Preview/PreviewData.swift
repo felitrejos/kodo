@@ -22,16 +22,23 @@ enum PreviewData {
 
     static var settings: KodoSettings {
         var settings = KodoSettings()
-        settings.selectedOutputs = ["speakers", "klipsch"]
-        settings.hiddenOutputs = ["display"]
-        settings.measurements = [
+        var livingRoom = SpeakerGroup(name: "Living Room")
+        livingRoom.outputs = ["speakers", "klipsch"]
+        livingRoom.measurements = [
             "speakers": Measurement(latency: 0.2685, spread: 0, strength: 0.37),
             "klipsch": Measurement(latency: 0.2496, spread: 0.0002, strength: 0.21),
         ]
-        settings.volumes = ["speakers": 0.7, "klipsch": 1]
-        settings.calibratedAt = .now.addingTimeInterval(-2 * 86_400)
-        settings.appVolumes = ["Dia": 0.45, "Discord": 0.8]
+        livingRoom.volumes = ["speakers": 0.7, "klipsch": 1]
+        livingRoom.calibratedAt = .now.addingTimeInterval(-2 * 86_400)
+        var desk = SpeakerGroup(name: "Desk")
+        desk.outputs = ["speakers", "airpodsmax"]
+        settings.groups = [livingRoom, desk]
+        settings.activeGroupID = livingRoom.id
+        settings.hiddenOutputs = ["display"]
+        settings.appVolumes = ["Dia": 0.45, "Discord": 0.8, "Music": 1.3]
         settings.mutedApps = ["Discord"]
+        settings.boostedApps = ["Music"]
+        settings.appRoutes = ["Zoom": "airpods"]
         return settings
     }
 

@@ -20,6 +20,8 @@ final class TapRouter {
 
     private var global: SystemAudioTap?
     private var appTaps: [AppTap] = []
+    /// Processes another engine already captures, which the global tap must leave alone too.
+    private var excludedElsewhere: [AudioObjectID] = []
 
     init(capturesEverything: Bool) throws {
         global = capturesEverything ? try .everything() : nil
@@ -39,12 +41,15 @@ final class TapRouter {
         appTaps.firstIndex { $0.appID == appID }.map { $0 + (capturesEverything ? 1 : 0) }
     }
 
-    /// Gives exactly these apps their own taps. When anything changed, returns the taps it
-    /// replaced: keep them alive until the engine has switched to the new `taps`, so the
-    /// aggregate never loses an input midway.
-    func route(_ apps: [AudioApp]) throws -> [SystemAudioTap]? {
+    /// Gives exactly these apps their own taps, and keeps the global tap clear of them and of
+    /// `elsewhere`, the processes other engines capture. When anything changed, returns the
+    /// taps it replaced: keep them alive until the engine has switched to the new `taps`, so
+    /// the aggregate never loses an input midway.
+    func route(_ apps: [AudioApp], excluding elsewhere: [AudioObjectID] = []) throws -> [SystemAudioTap]? {
+        let elsewhere = capturesEverything ? elsewhere.sorted() : []
         let unchanged = apps.count == appTaps.count
             && zip(apps, appTaps).allSatisfy { $0.id == $1.appID && $0.processes == $1.processes }
+            && elsewhere == excludedElsewhere
         guard !unchanged else {
             return nil
         }
@@ -55,9 +60,10 @@ final class TapRouter {
         }
         let retired = taps
         if capturesEverything {
-            global = try .everything(excluding: newTaps.flatMap(\.processes))
+            global = try .everything(excluding: newTaps.flatMap(\.processes) + elsewhere)
         }
         appTaps = newTaps
+        excludedElsewhere = elsewhere
         return retired
     }
 }

@@ -40,7 +40,11 @@ struct CalibrateRow: View {
         if model.needsCalibration {
             return "Approximate sync"
         }
-        guard let date = model.settings.calibratedAt else {
+        if model.settings.keepsInSync, let check = model.lastSyncCheck {
+            let when = check.date.formatted(.relative(presentation: .named))
+            return check.result == .unclear ? "Couldn't check \(when)" : "Kept in sync \(when)"
+        }
+        guard let date = model.group.calibratedAt else {
             return "Fine-tuned"
         }
         return "Fine-tuned \(date.formatted(.relative(presentation: .named)))"

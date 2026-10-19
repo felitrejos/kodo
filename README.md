@@ -22,7 +22,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/menu-sync-dark.png">
-    <img src="assets/screenshots/menu-sync-light.png" alt="Kodo's menu: Speaker Sync on with the MacBook speakers and a Bluetooth speaker playing together, and volume sliders for Dia, Discord, Music, and Zoom" width="340">
+    <img src="assets/screenshots/menu-sync-light.png" alt="Kodo's menu: Speaker Sync on with the Living Room group playing the MacBook speakers and a Bluetooth speaker together, and volume sliders for Dia, Discord, Music boosted, and Zoom sent to AirPods" width="340">
   </picture>
 </p>
 
@@ -38,16 +38,32 @@ video call stays loud while the music sits quietly underneath.
 
 **Speakers that play together.** Speaker Sync sends everything your Mac plays
 to all the speakers you choose at once, and keeps them in step over hours of
-listening.
+listening. One speaker leads, and the others follow its clock, so a Bluetooth
+speaker never has its audio stretched to fit. The volume keys turn the whole
+group up and down together, keeping each speaker's balance.
+
+**Groups for every room.** Save sets of speakers, like "Living Room" or "Desk",
+each with its own volumes and tuning, and switch between them in one click.
+When a group's speaker turns back on, it rejoins by itself.
 
 **Fine-tune for a perfect match.** Speakers line up on their own. For an exact
 match, press Fine-tune: Kodo plays a short chirp through each speaker, listens
-with your Mac's microphone, and corrects the difference. You can still nudge a
-speaker by ear afterwards.
+with your Mac's microphone, and corrects the difference. Turn on Keep in Sync
+and Kodo checks again now and then by listening to the music itself, no chirps
+needed.
 
 **A volume for every app.** Every app playing sound gets its own slider, and
-the speaker inside it mutes that app. It works whether or not Speaker Sync is
-on.
+the speaker inside it mutes that app. Boost a quiet one up to 200%, or scroll
+over any slider to adjust it. It works whether or not Speaker Sync is on.
+
+**Send an app somewhere else.** Put the video call on your AirPods while the
+music keeps playing on the speakers.
+
+**Right in Control Center.** Add Kodo to your Mac's Sound output list and it
+sits next to your other speakers: pick Kodo to play the group, pick anything
+else to go back. Its volume slider turns the whole group up and down. There's
+also a Speaker Sync control, with the taiko drum, that you can add to Control
+Center or the menu bar through Edit Controls.
 
 **Switch outputs in a click.** With Speaker Sync off, the speaker list works
 like Control Center's: click a speaker to play through it, and slide to set its
@@ -57,8 +73,9 @@ volume.
 connected, its sample rate and format, and how Kodo keeps it in step. Hide the
 devices you never use.
 
-**Stays out of the way.** Kodo lives in the menu bar, can open at login, and
-remembers your speakers, volumes, and Sync between launches.
+**Stays out of the way.** Kodo lives in the menu bar as a little taiko drum
+that shows at a glance whether Sync is on. Hide the apps and devices you never
+want to see, and Kodo remembers everything between launches.
 
 <p align="center">
   <picture>
@@ -105,8 +122,9 @@ volume and the right moment on each speaker. Nothing is saved or sent
 anywhere; everything stays on your Mac.
 
 **Why the microphone?**
-Only for Fine-tune, to hear the chirps. Kodo doesn't use the microphone at any
-other time.
+To hear your speakers: during Fine-tune, and for a few seconds every ten
+minutes while music plays if you turn on Keep in Sync. Kodo doesn't use the
+microphone at any other time, and never keeps what it hears.
 
 **Does it add delay?**
 In a group, every speaker plays as late as the slowest one, usually a
@@ -115,7 +133,13 @@ music, but videos can look slightly out of sync while a Bluetooth speaker is in
 the group.
 
 **What happens when I quit Kodo?**
-Your Mac's audio goes straight back to normal.
+Your Mac's audio goes straight back to normal. If it was playing to Kodo, it
+moves back to the speaker you used before.
+
+**Why does adding Kodo to the Sound list ask for my password?**
+Kodo's entry there comes from a small audio driver, which lives in a system
+folder. To take it out again, choose **More → Remove Kodo from Sound Output**.
+Either way, your audio pauses for a second while macOS reloads its drivers.
 
 ## The name
 

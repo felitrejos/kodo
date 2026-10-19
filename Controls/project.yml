@@ -1,0 +1,26 @@
+# The Control Center control is an app extension, which SwiftPM can't build, so
+# scripts/build-app.sh generates an Xcode project from this with XcodeGen and builds it.
+name: KodoControls
+options:
+  deploymentTarget:
+    macOS: "26.0"
+targets:
+  KodoControls:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: .
+        excludes: [project.yml, Info.plist, KodoControls.entitlements]
+      - path: ../Sources/Kodo/Controls/SyncControlState.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.felipetrejos.kodo.controls
+        PRODUCT_NAME: KodoControls
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: KodoControls.entitlements
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        SWIFT_VERSION: "6.0"
+        MARKETING_VERSION: "0"
+        CURRENT_PROJECT_VERSION: "0"
