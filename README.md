@@ -138,7 +138,9 @@ moves back to the speaker you used before.
 
 **Why does adding Kodo to the Sound list ask for my password?**
 Kodo's entry there comes from a small audio driver, which lives in a system
-folder. To take it out again, choose **More → Remove Kodo from Sound Output**.
+folder. Kodo offers to add it the first time you turn on Speaker Sync; if you
+said Not Now, choose **More → Add Kodo to Sound Menu**. To take it out again,
+choose **More → Remove Kodo from Sound Menu**.
 Either way, your audio pauses for a second while macOS reloads its drivers.
 
 ## The name

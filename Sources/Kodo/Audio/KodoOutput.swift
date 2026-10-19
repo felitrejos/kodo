@@ -25,13 +25,18 @@ enum KodoOutput {
     }
 
     static var status: Status {
-        guard let bundledURL else {
+        guard bundledURL != nil else {
             return .unavailable
         }
         guard let installed = version(at: installedURL) else {
             return .notInstalled
         }
-        return installed == version(at: bundledURL) ? .installed : .outdated
+        return installed == bundledVersion ? .installed : .outdated
+    }
+
+    /// The version of the driver this copy of Kodo carries.
+    static var bundledVersion: String? {
+        bundledURL.flatMap(version(at:))
     }
 
     private static func version(at url: URL) -> String? {

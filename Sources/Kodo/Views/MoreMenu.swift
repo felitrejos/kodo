@@ -20,22 +20,19 @@ struct MoreMenu: View {
         .fixedSize()
     }
 
-    /// Adding, updating, or removing Kodo in the Sound output list. Each asks for your password,
-    /// then Kodo restarts.
+    /// Adding and updating are offered once, in the menu itself. This is the way back to
+    /// either choice: removing while Kodo is in the Sound list, adding once you've said Not Now.
+    /// Both ask for your password, then Kodo restarts.
     @ViewBuilder private var soundOutputItem: some View {
         switch model.kodoOutputStatus {
-        case .unavailable:
+        case .installed, .outdated:
+            Button("Remove Kodo from Sound Menu…") { model.removeKodoOutput() }
+                .disabled(model.isInstallingKodoOutput)
+        case .notInstalled where model.settings.declinedSoundMenu:
+            Button("Add Kodo to Sound Menu…") { model.installKodoOutput() }
+                .disabled(model.isInstallingKodoOutput)
+        case .notInstalled, .unavailable:
             EmptyView()
-        case .notInstalled:
-            Button("Add Kodo to Sound Output…") { model.installKodoOutput() }
-                .help("Lists Kodo next to your speakers in Control Center and Sound settings. Picking it turns Speaker Sync on.")
-                .disabled(model.isInstallingKodoOutput)
-        case .outdated:
-            Button("Update Kodo in Sound Output…") { model.installKodoOutput() }
-                .disabled(model.isInstallingKodoOutput)
-        case .installed:
-            Button("Remove Kodo from Sound Output…") { model.removeKodoOutput() }
-                .disabled(model.isInstallingKodoOutput)
         }
     }
 

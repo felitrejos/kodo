@@ -42,7 +42,7 @@ enum PreviewData {
         return settings
     }
 
-    static func model(isSyncOn: Bool = true) -> KodoModel {
-        KodoModel(previewOutputs: [speakers, klipsch, airPods, airPodsMax, display], apps: apps, settings: settings, isSyncOn: isSyncOn, defaultOutputID: klipsch.id)
+    static func model(isSyncOn: Bool = true, kodoOutputStatus: KodoOutput.Status = .unavailable) -> KodoModel {
+        KodoModel(previewOutputs: [speakers, klipsch, airPods, airPodsMax, display], apps: apps, settings: settings, isSyncOn: isSyncOn, defaultOutputID: klipsch.id, kodoOutputStatus: kodoOutputStatus)
     }
 }
