@@ -87,21 +87,23 @@ final class KodoModel {
             guard !isPreview else {
                 return
             }
-            settings.save()
+            scheduleSave()
             applyMix()
             publishControlState()
         }
     }
 
     /// When each app last played, so pausing a song doesn't make its row vanish at once.
-    /// Not observed: it ticks every second while anything plays, and a row expiring a little
-    /// late, on the next real change or the next time the menu opens, is fine.
+    /// Not observed: it ticks every second while anything plays. `listedApps` is what the
+    /// menu watches.
     @ObservationIgnored private var lastHeard: [String: Date] = [:]
     /// How long a paused app keeps its row. Adjusted apps keep theirs while they run.
     private static let pausedAppLinger: TimeInterval = 10 * 60
-    /// Apps that have played long enough to be listed. Observed, unlike `lastHeard`, and
-    /// changing only when an app first qualifies, so the row appears right away.
-    private var heardApps: Set<String> = []
+    /// Apps that played long enough to be listed, within the last `pausedAppLinger`. Observed,
+    /// and changing only when an app joins or leaves, so the menu redraws exactly then. The
+    /// menu once read `lastHeard` here instead, and an app playing again after a long pause
+    /// stayed missing until something else redrew the menu.
+    private var listedApps: Set<String> = []
     /// When each app started its current stretch of playing.
     @ObservationIgnored private var playingSince: [String: Date] = [:]
     /// How long an app has to play before it gets a row, so a dictation chime or a
@@ -146,6 +148,7 @@ final class KodoModel {
     @ObservationIgnored private let isPreview: Bool
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
     @ObservationIgnored private var publishedControlState: SyncControlState?
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
 
     init() {
         isPreview = false
@@ -181,6 +184,7 @@ final class KodoModel {
                 self?.leaveKodoOutput()
                 // Nothing plays once Kodo quits; Sync picks up again at the next launch.
                 self?.publishControlState(isOn: false)
+                self?.saveNow()
             }
         }
         watchApps()
@@ -203,7 +207,7 @@ final class KodoModel {
         hardwareVolumes = Dictionary(uniqueKeysWithValues: previewOutputs.map { ($0.id, Float(0.6)) })
         hardwareMutes = Dictionary(uniqueKeysWithValues: previewOutputs.map { ($0.id, false) })
         lastHeard = Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Date.now) })
-        heardApps = Set(apps.map(\.id))
+        listedApps = Set(apps.map(\.id))
     }
 
     // MARK: - State for the menu
@@ -263,12 +267,11 @@ final class KodoModel {
     /// Apps worth a row: playing for more than a moment, played in the last few minutes, or
     /// adjusted. Hidden apps only while you ask to see them.
     var visibleApps: [AudioApp] {
-        let cutoff = Date.now.addingTimeInterval(-Self.pausedAppLinger)
-        return apps.filter { app in
+        apps.filter { app in
             guard showsHiddenApps || !isHidden(app) else {
                 return false
             }
-            return isAdjusted(app) || (heardApps.contains(app.id) && (lastHeard[app.id] ?? .distantPast) > cutoff)
+            return isAdjusted(app) || listedApps.contains(app.id)
         }
             .sorted { lhs, rhs in
                 lhs.isPlaying != rhs.isPlaying ? lhs.isPlaying : lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
@@ -532,6 +535,28 @@ final class KodoModel {
         }
     }
 
+    /// Writes the settings once they've been still for a moment. A slider drag changes them
+    /// on every step, and encoding and writing all of them each time added up.
+    private func scheduleSave() {
+        guard !isPreview else {
+            return
+        }
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else {
+                return
+            }
+            self?.saveNow()
+        }
+    }
+
+    private func saveNow() {
+        saveTask?.cancel()
+        saveTask = nil
+        settings.save()
+    }
+
     /// Tells the Speaker Sync control in Control Center whether Sync is on, and for which group.
     private func publishControlState(isOn: Bool? = nil) {
         guard !isPreview else {
@@ -603,6 +628,8 @@ final class KodoModel {
         // Reaching for the slider means you want to hear it.
         if hardwareMutes[output.id] == true {
             setHardwareMute(false, for: output)
+        } else if hardwareVolumes[output.id] == volume {
+            return
         }
         writeVolume(volume, to: output)
         if output.id == defaultOutputID {
@@ -801,12 +828,20 @@ final class KodoModel {
     // MARK: - App actions
 
     /// Takes the slider's position, 0 to 1, which covers twice the range for a boosted app.
+    /// Called for every step of a drag, so it does as little as it can: the gain reaches the
+    /// engine through `applyMix`, and only an app getting its first tap rebuilds anything.
     func setSliderValue(_ position: Double, for app: AudioApp) {
         let gain = Float(position) * (isBoosted(app) ? 2 : 1)
+        guard gain != settings.appVolumes[app.id] || settings.mutedApps.contains(app.id) else {
+            return
+        }
+        let hadTap = isAdjusted(app)
         settings.appVolumes[app.id] = gain
         // Reaching for the slider means you want to hear it.
         settings.mutedApps.remove(app.id)
-        reconcileEngines()
+        if !hadTap {
+            reconcileEngines()
+        }
         scheduleRelease(of: app)
     }
 
@@ -1210,10 +1245,13 @@ final class KodoModel {
             playingSince[app.id] = since
             if now.timeIntervalSince(since) >= Self.playingToBeListed {
                 lastHeard[app.id] = now
-                if !heardApps.contains(app.id) {
-                    heardApps.insert(app.id)
-                }
             }
+        }
+        let cutoff = now.addingTimeInterval(-Self.pausedAppLinger)
+        lastHeard = lastHeard.filter { $0.value > cutoff }
+        let listed = Set(lastHeard.keys)
+        if listed != listedApps {
+            listedApps = listed
         }
         if current != apps {
             apps = current
