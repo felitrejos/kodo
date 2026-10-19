@@ -42,6 +42,19 @@ struct DeviceInspector: View {
                                 .gridCellColumns(2)
                         }
                         InspectorRow(label: "Sync", value: syncStatus)
+                        if model.isSyncOn, model.activeOutputs.count > 1 {
+                            GridRow {
+                                Text("Role")
+                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(role)
+                                    Button(leadButtonTitle, action: toggleLead)
+                                        .buttonStyle(.link)
+                                        .font(.caption)
+                                        .help("The lead's clock sets the pace for the others, so its audio is never resampled. Wireless speakers lead best.")
+                                }
+                            }
+                        }
                         if model.isSyncOn {
                             GridRow {
                                 Text("Nudge")
@@ -62,6 +75,25 @@ struct DeviceInspector: View {
         .padding(16)
         .frame(width: 280)
         .task(id: output.id, loadDetails)
+    }
+
+    private var isLead: Bool {
+        model.leadSpeaker == output
+    }
+
+    private var role: String {
+        guard isLead else {
+            return "Follows the lead"
+        }
+        return model.isChosenLead(output) ? "Leads the group" : "Leads the group · automatic"
+    }
+
+    private var leadButtonTitle: String {
+        model.isChosenLead(output) ? "Choose Automatically" : isLead ? "Keep as Lead" : "Make Lead"
+    }
+
+    private func toggleLead() {
+        model.setLead(model.isChosenLead(output) ? nil : output)
     }
 
     /// What fine-tuning means for this speaker, in terms of what you hear. The raw

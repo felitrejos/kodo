@@ -25,7 +25,29 @@ final class KodoModel {
         var outputs: [AudioObjectID]
         /// Speaker Sync captures every app; otherwise only the apps sent to this engine.
         var capturesEverything: Bool
+        /// The device whose clock the others follow.
+        var clockUID: String?
+        var bufferFrames: UInt32?
     }
+
+    /// What a device looked like when its engine was built. A Bluetooth speaker that changes
+    /// its rate or channels mid-stream, as when it renegotiates its codec, can leave the
+    /// engine sounding broken until it's rebuilt.
+    private struct DeviceState: Equatable {
+        var sampleRate: Double
+        var outputChannels: [Int]
+        var isAlive: Bool
+
+        init(_ device: AudioDevice) {
+            sampleRate = device.nominalSampleRate
+            outputChannels = device.id.streamChannelCounts(scope: kAudioObjectPropertyScopeOutput)
+            isAlive = ((try? device.id.read(kAudioDevicePropertyDeviceIsAlive, default: UInt32(1))) ?? 1) != 0
+        }
+    }
+
+    /// A wireless group gets a roomier IO buffer: drift correction gets more slack, and the
+    /// extra 12 ms is nothing next to Bluetooth's quarter of a second.
+    private static let wirelessBufferFrames: UInt32 = 1024
 
     /// One running engine with the taps that feed it.
     private struct EngineSlot {
@@ -89,6 +111,11 @@ final class KodoModel {
     /// Saved measurements whose runs disagreed by more than this are dropped at launch.
     private static let trustedSpread = 0.005
     @ObservationIgnored private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
+    /// Watches on the devices engines play through, and how each looked when its engine
+    /// started.
+    @ObservationIgnored private var deviceWatches: [AudioObjectID: (state: DeviceState, block: AudioObjectPropertyListenerBlock)] = [:]
+    @ObservationIgnored private var deviceCheckTask: Task<Void, Never>?
+    @ObservationIgnored private var reportedLatencies: [AudioObjectID: Double] = [:]
     /// Each group speaker's volume as a share of the Mac output's, so the volume keys can move
     /// the whole group without changing its balance.
     @ObservationIgnored private var groupBalance: [AudioObjectID: Float] = [:]
@@ -187,7 +214,7 @@ final class KodoModel {
     }
 
     var needsCalibration: Bool {
-        activeOutputs.count > 1 && activeOutputs.contains { group.measurements[$0.uid] == nil }
+        activeOutputs.count > 1 && activeOutputs.contains { measurements[$0.uid] == nil }
     }
 
     /// Apps worth a row: playing for more than a moment, played in the last few minutes, or
@@ -214,6 +241,40 @@ final class KodoModel {
         return output.map(isMuted) == true ? .muted : .outlined
     }
 
+    /// The speaker the group follows: its clock drives the others. Kodo picks the wireless
+    /// speaker with the most delay, usually the one the rest already wait for, because a
+    /// Bluetooth link is the part most likely to crackle when its audio is resampled; wired
+    /// speakers take resampling in stride. You can pick a different one per group.
+    var leadSpeaker: AudioDevice? {
+        let active = activeOutputs
+        if let uid = group.leadUID, let chosen = active.first(where: { $0.uid == uid }) {
+            return chosen
+        }
+        let wireless = active.filter { $0.transport == .bluetooth || $0.transport == .airPlay }
+        if let slowest = wireless.max(by: { reportedLatency(of: $0) < reportedLatency(of: $1) }) {
+            return slowest
+        }
+        return active.first { $0.transport == .builtIn } ?? active.first
+    }
+
+    /// The group's fine-tune results, if they were measured with today's lead.
+    private var measurements: [String: Measurement] {
+        group.measuredLeadUID == leadSpeaker?.uid ? group.measurements : [:]
+    }
+
+    func isChosenLead(_ output: AudioDevice) -> Bool {
+        group.leadUID == output.uid
+    }
+
+    private func reportedLatency(of output: AudioDevice) -> Double {
+        if let latency = reportedLatencies[output.id] {
+            return latency
+        }
+        let latency = DeviceDetails(device: output).reportedLatency ?? 0
+        reportedLatencies[output.id] = latency
+        return latency
+    }
+
     /// Whether a speaker is lit: part of the group with Sync on, the Mac's output with it off.
     func isActive(_ output: AudioDevice) -> Bool {
         isSyncOn ? isSelected(output) : output.id == defaultOutputID
@@ -228,7 +289,7 @@ final class KodoModel {
     }
 
     func measurement(for output: AudioDevice) -> Measurement? {
-        group.measurements[output.uid]
+        measurements[output.uid]
     }
 
     func delay(for output: AudioDevice) -> Double? {
@@ -326,6 +387,12 @@ final class KodoModel {
     }
 
     // MARK: - Speaker actions
+
+    /// Makes a speaker lead its group, or lets Kodo choose again with `nil`.
+    func setLead(_ output: AudioDevice?) {
+        settings.activeGroup.leadUID = output?.uid
+        reconcileEngines()
+    }
 
     func setSyncOn(_ on: Bool) {
         problem = nil
@@ -714,7 +781,13 @@ final class KodoModel {
     private var neededSetups: [Destination: EngineSetup] {
         var setups: [Destination: EngineSetup] = [:]
         if isSyncPlaying {
-            setups[.kodo] = EngineSetup(outputs: activeOutputs.map(\.id), capturesEverything: true)
+            let active = activeOutputs
+            let isWireless = active.contains { $0.transport == .bluetooth || $0.transport == .airPlay }
+            setups[.kodo] = EngineSetup(
+                outputs: active.map(\.id),
+                capturesEverything: true,
+                clockUID: leadSpeaker?.uid,
+                bufferFrames: active.count > 1 && isWireless ? Self.wirelessBufferFrames : nil)
         } else if !apps(for: .kodo).isEmpty, let defaultOutputID, outputs.contains(where: { $0.id == defaultOutputID }) {
             setups[.kodo] = EngineSetup(outputs: [defaultOutputID], capturesEverything: false)
         }
@@ -740,7 +813,11 @@ final class KodoModel {
             do {
                 let router = try TapRouter(capturesEverything: setup.capturesEverything)
                 _ = try router.route(apps(for: destination), excluding: processesCaptured(outsideOf: destination))
-                let engine = try UnisonEngine(outputs: setup.outputs.compactMap { id in outputs.first { $0.id == id } }, taps: router.taps)
+                let engine = try UnisonEngine(
+                    outputs: setup.outputs.compactMap { id in outputs.first { $0.id == id } },
+                    taps: router.taps,
+                    clockUID: setup.clockUID,
+                    bufferFrames: setup.bufferFrames)
                 slots[destination] = EngineSlot(setup: setup, router: router, engine: engine)
                 try engine.start()
             } catch {
@@ -753,6 +830,67 @@ final class KodoModel {
         }
         routeApps()
         applyMix()
+        watchEngineDevices()
+    }
+
+    // MARK: - Keeping engines healthy
+
+    /// Watches every device an engine plays through for changes that can break the stream.
+    private func watchEngineDevices() {
+        let inUse = Set(slots.values.flatMap { $0.engine.outputs })
+        for (id, watch) in deviceWatches where !inUse.contains(where: { $0.id == id }) {
+            for var address in Self.deviceWatchAddresses {
+                AudioObjectRemovePropertyListenerBlock(id, &address, .main, watch.block)
+            }
+            deviceWatches[id] = nil
+        }
+        for device in inUse where deviceWatches[device.id] == nil {
+            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    self?.deviceMayHaveChanged()
+                }
+            }
+            for var address in Self.deviceWatchAddresses {
+                AudioObjectAddPropertyListenerBlock(device.id, &address, .main, block)
+            }
+            deviceWatches[device.id] = (DeviceState(device), block)
+        }
+    }
+
+    private static let deviceWatchAddresses = [
+        AudioObjectID.address(kAudioDevicePropertyNominalSampleRate),
+        AudioObjectID.address(kAudioDevicePropertyStreamConfiguration, scope: kAudioObjectPropertyScopeOutput),
+        AudioObjectID.address(kAudioDevicePropertyDeviceIsAlive),
+    ]
+
+    /// Kodo's own sample rate changes set these off too, so wait for things to settle, then
+    /// rebuild only the engines whose devices really look different from when they started.
+    private func deviceMayHaveChanged() {
+        deviceCheckTask?.cancel()
+        deviceCheckTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, !Task.isCancelled else {
+                return
+            }
+            let changed = Set(deviceWatches.compactMap { id, watch in
+                outputs.first { $0.id == id }.flatMap { DeviceState($0) == watch.state ? nil : id }
+            })
+            guard !changed.isEmpty else {
+                return
+            }
+            for (destination, slot) in slots where slot.engine.outputs.contains(where: { changed.contains($0.id) }) {
+                slots[destination] = nil
+            }
+            for id in changed {
+                if let watch = deviceWatches[id] {
+                    for var address in Self.deviceWatchAddresses {
+                        AudioObjectRemovePropertyListenerBlock(id, &address, .main, watch.block)
+                    }
+                }
+                deviceWatches[id] = nil
+            }
+            reconcileEngines()
+        }
     }
 
     /// Processes that engines other than this one capture, so a global tap leaves them out.
@@ -763,7 +901,7 @@ final class KodoModel {
     private func currentDelays() -> [String: Double] {
         let active = activeOutputs
         let latencies = Dictionary(uniqueKeysWithValues: active.compactMap { output in
-            group.measurements[output.uid].map { (output.uid, $0.latency) }
+            measurements[output.uid].map { (output.uid, $0.latency) }
         })
         let corrections = group.trims.merging(group.drifts) { $0 + $1 }
         var delays = AlignmentPlan.delays(latencies: latencies, trims: corrections)
@@ -908,7 +1046,12 @@ final class KodoModel {
             guard group.id == groupID else {
                 return
             }
+            // Measurements under another lead don't mix with these; start over.
+            if group.measuredLeadUID != slot.engine.clockDevice.uid {
+                settings.activeGroup.measurements = [:]
+            }
             settings.activeGroup.measurements.merge(outcome.measurements) { $1 }
+            settings.activeGroup.measuredLeadUID = slot.engine.clockDevice.uid
             // A speaker without a steady answer goes back to the approximate alignment rather
             // than keeping an old number that may be just as wrong.
             for uid in outcome.unsteady + outcome.unheard {
@@ -965,6 +1108,7 @@ final class KodoModel {
         let current = AudioDevice.all().filter(\.isOutput)
         if current != outputs {
             outputs = current
+            reportedLatencies = [:]
         }
         refreshDefaultOutput()
         reconcileEngines()

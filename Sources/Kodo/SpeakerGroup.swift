@@ -18,6 +18,11 @@ struct SpeakerGroup: Codable, Equatable, Identifiable {
     /// Corrections Keep in Sync found by listening to the music, in seconds.
     var drifts: [String: Double] = [:]
     var calibratedAt: Date?
+    /// The speaker you chose to lead, whose clock the others follow. Nil lets Kodo choose.
+    var leadUID: String?
+    /// The lead when the measurements were taken. Resampling adds a little delay to every
+    /// speaker but the lead, so measurements only hold for the lead they were taken with.
+    var measuredLeadUID: String?
 
     init(name: String) {
         self.name = name
@@ -35,5 +40,9 @@ struct SpeakerGroup: Codable, Equatable, Identifiable {
         trims = try container.decodeIfPresent([String: Double].self, forKey: .trims) ?? [:]
         drifts = try container.decodeIfPresent([String: Double].self, forKey: .drifts) ?? [:]
         calibratedAt = try container.decodeIfPresent(Date.self, forKey: .calibratedAt)
+        leadUID = try container.decodeIfPresent(String.self, forKey: .leadUID)
+        // Fine-tunes from before leads existed always had the built-in speakers as the clock.
+        measuredLeadUID = try container.decodeIfPresent(String.self, forKey: .measuredLeadUID)
+            ?? (measurements["BuiltInSpeakerDevice"] != nil ? "BuiltInSpeakerDevice" : nil)
     }
 }

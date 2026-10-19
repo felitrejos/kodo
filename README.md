@@ -38,8 +38,9 @@ video call stays loud while the music sits quietly underneath.
 
 **Speakers that play together.** Speaker Sync sends everything your Mac plays
 to all the speakers you choose at once, and keeps them in step over hours of
-listening. The volume keys turn the whole group up and down together, keeping
-each speaker's balance.
+listening. One speaker leads, and the others follow its clock, so a Bluetooth
+speaker never has its audio stretched to fit. The volume keys turn the whole
+group up and down together, keeping each speaker's balance.
 
 **Groups for every room.** Save sets of speakers, like "Living Room" or "Desk",
 each with its own volumes and tuning, and switch between them in one click.

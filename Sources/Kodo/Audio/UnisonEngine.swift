@@ -21,20 +21,27 @@ final class UnisonEngine {
     let outputs: [AudioDevice]
     let sampleRate: Double
     private let aggregateID: AudioObjectID
+    /// The device whose clock the others follow.
+    let clockDevice: AudioDevice
+    private var overloadListener: AudioObjectPropertyListenerBlock?
     private let state: RenderState
     private var procID: AudioDeviceIOProcID?
     /// Rates the outputs ran at before Kodo switched them, restored on teardown.
     private let originalSampleRates: [AudioDevice: Double]
 
     /// - Parameter taps: The global tap first, then any per-app taps; see `setTaps(_:)`.
-    init(outputs: [AudioDevice], taps: [SystemAudioTap]) throws {
+    /// - Parameters:
+    ///   - clockUID: The device the others follow. Nil picks one.
+    ///   - bufferFrames: The IO buffer size to ask for. Nil keeps the system's.
+    init(outputs: [AudioDevice], taps: [SystemAudioTap], clockUID: String? = nil, bufferFrames: UInt32? = nil) throws {
         guard !outputs.isEmpty else {
             throw EngineError.noOutputs
         }
 
         // The built-in speakers have the steadiest clock and the lowest latency, so they make a
         // good reference. Bluetooth devices drift and get resampled against it.
-        let clockDevice = outputs.first { $0.transport == .builtIn } ?? outputs[0]
+        let clockDevice = outputs.first { $0.uid == clockUID } ?? outputs.first { $0.transport == .builtIn } ?? outputs[0]
+        self.clockDevice = clockDevice
         let originalSampleRates = Dictionary(uniqueKeysWithValues: outputs.map { ($0, $0.nominalSampleRate) })
         self.originalSampleRates = originalSampleRates
         do {
@@ -76,6 +83,9 @@ final class UnisonEngine {
         self.aggregateID = aggregateID
         self.outputs = outputs
 
+        if let bufferFrames {
+            try? aggregateID.write(kAudioDevicePropertyBufferFrameSize, bufferFrames)
+        }
         do {
             let bufferGroups = try Self.bufferGroups(aggregateID: aggregateID, outputs: outputs)
             state = RenderState(
@@ -114,6 +124,10 @@ final class UnisonEngine {
         guard let procID else {
             throw AudioError(operation: "Starting playback", status: kAudioHardwareUnspecifiedError)
         }
+        let listener = Self.overloadCounter(for: state)
+        var overloadAddress = AudioObjectID.address(kAudioDeviceProcessorOverload)
+        AudioObjectAddPropertyListenerBlock(aggregateID, &overloadAddress, DispatchQueue.global(qos: .utility), listener)
+        overloadListener = listener
         do {
             try check(AudioDeviceStart(aggregateID, procID), "Starting playback")
         } catch {
@@ -131,9 +145,21 @@ final class UnisonEngine {
         }
     }
 
+    /// Built outside the main actor for the same reason as `renderBlock(for:)`.
+    private nonisolated static func overloadCounter(for state: RenderState) -> AudioObjectPropertyListenerBlock {
+        { _, _ in
+            state.overloads.add(1, ordering: .relaxed)
+        }
+    }
+
     func stop() {
         guard let procID else {
             return
+        }
+        if let overloadListener {
+            var overloadAddress = AudioObjectID.address(kAudioDeviceProcessorOverload)
+            AudioObjectRemovePropertyListenerBlock(aggregateID, &overloadAddress, DispatchQueue.global(qos: .utility), overloadListener)
+            self.overloadListener = nil
         }
         AudioDeviceStop(aggregateID, procID)
         AudioDeviceDestroyIOProcID(aggregateID, procID)
@@ -146,6 +172,17 @@ final class UnisonEngine {
             let frames = Int((delays[output.uid] ?? 0) * sampleRate)
             state.setDelay(frames: frames, gain: gains[output.uid] ?? 1, forGroup: group)
         }
+    }
+
+    /// How the engine is holding up: cycles so far, glitches in the sample timeline, and
+    /// overloads Core Audio reported.
+    var health: (cycles: Int, discontinuities: Int, overloads: Int, bufferFrames: UInt32) {
+        (
+            state.cycles.load(ordering: .relaxed),
+            state.discontinuities.load(ordering: .relaxed),
+            state.overloads.load(ordering: .relaxed),
+            (try? aggregateID.read(kAudioDevicePropertyBufferFrameSize, default: UInt32(0))) ?? 0
+        )
     }
 
     var diagnostics: (cycles: Int, inputStreams: [Int], outputStreams: [Int]) {

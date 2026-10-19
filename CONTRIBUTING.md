@@ -61,6 +61,13 @@ delay buffers carry on.
 **Keeping speakers in step.** All outputs and taps join one private aggregate
 device, which puts them on a single clock. Drift compensation resamples every
 member except the clock device, so they stay aligned over long sessions. The
+clock is the group's lead speaker: by default the wireless speaker with the
+most delay, because a Bluetooth link is the part most likely to crackle when
+its audio is resampled, while wired speakers take resampling in stride. Groups
+with a wireless speaker also get a 1024-frame IO buffer for slack. Kodo watches
+every device an engine plays through, and rebuilds the engine when one changes
+its sample rate or channels mid-stream, as Bluetooth does when it renegotiates
+its codec. The
 aggregate also pads faster members to match the slowest one's reported
 latency, which gets speakers roughly in step before any measuring.
 
@@ -77,7 +84,9 @@ a separate callback. Both sides are stamped with host time, so an FFT
 cross-correlation gives each speaker's arrival time. Three runs per speaker,
 combined by median, become a per-speaker delay in the shared delay line.
 Results belong to the group, since the aggregate pads each speaker differently
-depending on its company.
+depending on its company, and to the lead they were measured with, since
+resampling adds a little delay to every other speaker. A speaker's runs must
+agree: five chirps, at least three within 3 ms.
 
 **Keep in Sync.** Every ten minutes while a fine-tuned group plays, Kodo records
 three seconds of the microphone and compares it with what it played, using

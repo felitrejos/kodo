@@ -31,8 +31,14 @@ final class RenderState: @unchecked Sendable {
     let cycleHostTime = Atomic<UInt64>(0)
 
     let programMuted = Atomic<Bool>(false)
-    /// Render cycles so far. Diagnostics only.
+    /// Render cycles so far.
     let cycles = Atomic<Int>(0)
+    /// Cycles whose sample time didn't follow on from the previous one: audio the device
+    /// dropped or repeated. A healthy engine stays at zero.
+    let discontinuities = Atomic<Int>(0)
+    /// Times Core Audio said a cycle ran late.
+    let overloads = Atomic<Int>(0)
+    private var expectedSampleTime: Double = -1
 
     /// One input per tap, in the order of the aggregate's tap list: the global tap first,
     /// then one per app whose volume was changed.
@@ -167,6 +173,11 @@ final class RenderState: @unchecked Sendable {
             playedDelays[group] = delays[group]
         }
         advanceChirp(by: frameCount, playing: chirpGroup >= 0)
+        let sampleTime = outputTime.pointee.mSampleTime
+        if expectedSampleTime >= 0, abs(sampleTime - expectedSampleTime) > 1 {
+            discontinuities.add(1, ordering: .relaxed)
+        }
+        expectedSampleTime = sampleTime + Double(frameCount)
         cycles.add(1, ordering: .relaxed)
     }
 
