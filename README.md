@@ -5,59 +5,129 @@
 <h1 align="center">Kodo</h1>
 
 <p align="center">
-  Play your Mac's audio through several speakers at once, in perfect sync.
+  <b>Every speaker, one beat.</b><br>
+  Play your Mac through several speakers at once, in sync, and give every app its own volume.
+</p>
+
+<p align="center">
+  <a href="https://github.com/felitrejos/kodo/releases/latest"><b>Download for macOS</b></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/felitrejos/kodo/actions/workflows/ci.yml"><img src="https://github.com/felitrejos/kodo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/macOS-15%2B-black" alt="macOS 15+">
+  <img src="https://img.shields.io/badge/macOS-26%2B-black" alt="macOS 26+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
-> 鼓動 (kodō): heartbeat. Kodō is also the taiko group known for playing in perfect unison.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/menu-sync-dark.png">
+    <img src="assets/screenshots/menu-sync-light.png" alt="Kodo's menu: Speaker Sync on with the MacBook speakers and a Bluetooth speaker playing together, and volume sliders for Dia, Discord, Music, and Zoom" width="340">
+  </picture>
+</p>
 
-macOS can play to several outputs at once, but every Bluetooth speaker adds its
-own delay, so together they echo. Kodo measures each speaker's delay with a
-short chirp and holds back the faster ones, so everything arrives at once.
+Your Mac can already play to more than one speaker, but every Bluetooth speaker
+runs a little late, so together they echo. Kodo lines them up. Turn on Speaker
+Sync, pick your speakers, and the MacBook, the speaker on the shelf, and the
+one across the room play as one.
+
+It also puts a volume slider next to every app that's making sound, so the
+video call stays loud while the music sits quietly underneath.
+
+## Features
+
+**Speakers that play together.** Speaker Sync sends everything your Mac plays
+to all the speakers you choose at once, and keeps them in step over hours of
+listening.
+
+**Fine-tune for a perfect match.** Speakers line up on their own. For an exact
+match, press Fine-tune: Kodo plays a short chirp through each speaker, listens
+with your Mac's microphone, and corrects the difference. You can still nudge a
+speaker by ear afterwards.
+
+**A volume for every app.** Every app playing sound gets its own slider, and
+the speaker inside it mutes that app. It works whether or not Speaker Sync is
+on.
+
+**Switch outputs in a click.** With Speaker Sync off, the speaker list works
+like Control Center's: click a speaker to play through it, and slide to set its
+volume.
+
+**Know your devices.** Hover over a speaker and click ⓘ to see how it's
+connected, its sample rate and format, and how Kodo keeps it in step. Hide the
+devices you never use.
+
+**Stays out of the way.** Kodo lives in the menu bar, can open at login, and
+remembers your speakers, volumes, and Sync between launches.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/menu-output-dark.png">
+    <img src="assets/screenshots/menu-output-light.png" alt="Kodo with Speaker Sync off, playing through a Bluetooth speaker, with per-app volumes below" width="340">
+  </picture>
+  &nbsp;
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/inspector-dark.png">
+    <img src="assets/screenshots/inspector-light.png" alt="The device inspector for a Bluetooth speaker, showing its connection, sample rate, format, channels, driver latency, and that it waits 19 ms to line up" width="280">
+  </picture>
+</p>
 
 ## Install
 
-Download `Kodo-<version>.dmg` from
-[Releases](https://github.com/felitrejos/kodo/releases/latest) and drag Kodo
-into Applications.
+1. Download `Kodo-<version>.dmg` from the
+   [latest release](https://github.com/felitrejos/kodo/releases/latest) and
+   drag Kodo into Applications.
+2. Open Kodo. It isn't notarized yet, so macOS blocks the first launch: go to
+   **System Settings → Privacy & Security** and click **Open Anyway**.
+3. Allow Kodo to record system audio when macOS asks.
 
-Kodo isn't notarized, so macOS blocks the first launch. Open it once, then go to
-System Settings → Privacy & Security and click **Open Anyway**.
+Kodo needs macOS 26 or later.
 
-To build it yourself instead, run `./scripts/build-app.sh --install`.
+## Getting started
 
-## Usage
+1. Click the speaker icon in your menu bar.
+2. Drag an app's slider to set its volume, or click the speaker inside it to
+   mute it.
+3. To play through several speakers, turn on **Speaker Sync** and click each
+   speaker you want in the group.
+4. Optionally, press **Fine-tune** with your Mac where you usually listen.
 
-1. Click the Kodo icon in the menu bar and tick the speakers to play through.
-2. Turn Kodo on, then press **Calibrate** with the Mac where you usually listen.
-3. Fine-tune a speaker by ear with − / +, or mute it from its volume icon.
+## Questions
 
-macOS asks once for system audio recording and once for the microphone.
-Turning Kodo off hands audio straight back to macOS.
+**Do I have to fine-tune?**
+No. Speakers in Sync line up on their own from what each one reports about
+itself. Fine-tuning measures them for an exact match, which matters most with
+cheaper Bluetooth speakers or a speaker on the other side of the room.
 
-## How it works
+**Why does Kodo need to record system audio?**
+That's how it captures what your apps play, so it can replay it at the right
+volume and the right moment on each speaker. Nothing is saved or sent
+anywhere; everything stays on your Mac.
 
-- A muted Core Audio process tap captures everything the Mac plays.
-- The tap and the chosen speakers join one private aggregate device, so they
-  share a clock and stay aligned over long sessions.
-- Each speaker reads the captured audio from a shared buffer at its own delay.
-- Calibration plays a sweep through one speaker at a time and times its arrival
-  at the built-in mic with an FFT cross-correlation.
+**Why the microphone?**
+Only for Fine-tune, to hear the chirps. Kodo doesn't use the microphone at any
+other time.
 
-## Development
+**Does it add delay?**
+In a group, every speaker plays as late as the slowest one, usually a
+Bluetooth speaker at about a quarter of a second. That's unnoticeable for
+music, but videos can look slightly out of sync while a Bluetooth speaker is in
+the group.
 
-Requires Xcode 26 or later. Runs on macOS 15 or later.
+**What happens when I quit Kodo?**
+Your Mac's audio goes straight back to normal.
 
-```bash
-swift test             # signal processing and alignment math
-./scripts/release.sh   # build/Kodo-<version>.dmg
-```
+## The name
 
-Work happens on `dev`. To release, bump `CFBundleShortVersionString` in
-`Resources/Info.plist` and merge into `main`: CI builds the `.dmg` and publishes
-it as a GitHub release.
+鼓動 (*kodō*) means heartbeat. Kodō is also the taiko drumming group known for
+playing in perfect unison, which is what Kodo asks of your speakers.
+
+## Contributing
+
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for building from source, how Kodo works under the hood, and how releases are
+made.
+
+## License
+
+[MIT](LICENSE)

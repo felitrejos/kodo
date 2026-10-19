@@ -2,11 +2,16 @@ import CoreAudio
 import Foundation
 import KodoCore
 
-/// Plays the system tap through several outputs at once, each with its own delay and volume.
+/// Plays the captured taps through several outputs at once, each with its own delay and volume.
 ///
-/// All outputs and the tap live in one private aggregate device. That puts them on a single
+/// All outputs and the taps live in one private aggregate device. That puts them on a single
 /// clock: Core Audio's drift compensation resamples every device that is not the clock source,
 /// so outputs that start aligned stay aligned over a long session.
+///
+/// The aggregate also pads its faster members to match the slowest one's reported latency.
+/// That gets an uncalibrated speaker roughly in step, but the reported numbers are only
+/// approximate: the aggregate ignores the built-in speakers' stream latency, for one. Kodo's
+/// calibration measures what's left and its delay line closes the gap.
 @MainActor
 final class UnisonEngine {
     /// Bluetooth needs a few hundred milliseconds and AirPlay about two seconds, so four
@@ -21,7 +26,8 @@ final class UnisonEngine {
     /// Rates the outputs ran at before Kodo switched them, restored on teardown.
     private let originalSampleRates: [AudioDevice: Double]
 
-    init(outputs: [AudioDevice], tap: SystemAudioTap) throws {
+    /// - Parameter taps: The global tap first, then any per-app taps; see `setTaps(_:)`.
+    init(outputs: [AudioDevice], taps: [SystemAudioTap]) throws {
         guard !outputs.isEmpty else {
             throw EngineError.noOutputs
         }
@@ -42,18 +48,20 @@ final class UnisonEngine {
             kAudioAggregateDeviceNameKey: "Kodo",
             kAudioAggregateDeviceUIDKey: "kodo.aggregate.\(UUID().uuidString)",
             kAudioAggregateDeviceMainSubDeviceKey: clockDevice.uid,
-            kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: false,
-            kAudioAggregateDeviceTapAutoStartKey: true,
+            // These flags must be numbers, as the headers say. A Swift Bool bridges to a
+            // CFBoolean, which the drift key silently ignores, leaving the speaker uncorrected.
+            kAudioAggregateDeviceIsPrivateKey: 1,
+            kAudioAggregateDeviceIsStackedKey: 0,
+            kAudioAggregateDeviceTapAutoStartKey: 1,
             kAudioAggregateDeviceSubDeviceListKey: outputs.map { output in
                 [
                     kAudioSubDeviceUIDKey: output.uid,
-                    kAudioSubDeviceDriftCompensationKey: output.uid != clockDevice.uid,
+                    kAudioSubDeviceDriftCompensationKey: output.uid == clockDevice.uid ? 0 : 1,
                 ] as [String: Any]
             },
-            kAudioAggregateDeviceTapListKey: [
-                [kAudioSubTapUIDKey: tap.uid, kAudioSubTapDriftCompensationKey: true] as [String: Any],
-            ],
+            kAudioAggregateDeviceTapListKey: taps.map { tap in
+                [kAudioSubTapUIDKey: tap.uid, kAudioSubTapDriftCompensationKey: 1] as [String: Any]
+            },
         ]
 
         var aggregateID = AudioObjectID(kAudioObjectUnknown)
@@ -138,12 +146,33 @@ final class UnisonEngine {
         }
     }
 
-    var diagnostics: (cycles: Int, capturedPeak: Float, streams: [Int]) {
+    var diagnostics: (cycles: Int, inputStreams: [Int], outputStreams: [Int]) {
         (
             state.cycles.load(ordering: .relaxed),
-            Float(bitPattern: state.capturedPeakBits.load(ordering: .relaxed)),
+            aggregateID.streamChannelCounts(scope: kAudioObjectPropertyScopeInput),
             aggregateID.streamChannelCounts(scope: kAudioObjectPropertyScopeOutput)
         )
+    }
+
+    /// Swaps the taps while playing, so adjusting one app never interrupts the delay buffers.
+    /// The renderer's inputs follow this order.
+    func setTaps(_ taps: [SystemAudioTap]) throws {
+        var address = AudioObjectID.address(kAudioAggregateDevicePropertyTapList)
+        var list = Unmanaged.passRetained(taps.map(\.uid) as CFArray)
+        defer { list.release() }
+        try check(
+            AudioObjectSetPropertyData(aggregateID, &address, 0, nil, UInt32(MemoryLayout<Unmanaged<CFArray>>.size), &list),
+            "Updating Kodo's app taps")
+
+        // Taps added this way start without drift compensation; give them the same as the rest.
+        let subTaps = (try? aggregateID.readArray(kAudioAggregateDevicePropertySubTapList, of: AudioObjectID.self)) ?? []
+        for subTap in subTaps {
+            try? subTap.write(kAudioSubTapPropertyDriftCompensation, UInt32(1))
+        }
+    }
+
+    func setGain(_ gain: Float, forInput input: Int) {
+        state.setGain(gain, forInput: input)
     }
 
     /// Silences the captured audio so calibration chirps play into a quiet room.
