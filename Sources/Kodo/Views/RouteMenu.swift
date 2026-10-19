@@ -6,7 +6,7 @@ struct RouteMenu: View {
     let app: AudioApp
 
     var body: some View {
-        Picker("Play \(app.name) Through", selection: Binding(get: { model.route(for: app)?.uid }, set: choose)) {
+        Picker("Play \(app.name) Through", selection: Binding(get: { model.route(for: app)?.uid }, set: { choose($0) })) {
             Text(model.isSyncOn ? "Speaker Sync" : "Mac Output")
                 .tag(String?.none)
             Divider()

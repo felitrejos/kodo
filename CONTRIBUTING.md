@@ -88,6 +88,9 @@ over one buffer, so the moves don't click.
 - Core Audio dictionary flags are numbers, as the headers document. A Swift
   `Bool` bridges to a `CFBoolean`, which some keys silently ignore.
 - One type per file, and SwiftUI uses only macOS 26 APIs, Liquid Glass included.
+- Give `Binding(get:set:)` a closure, `set: { model.choose($0) }`, never a bare
+  method like `set: model.choose`. Swift 6.3, which CI uses, crashes while
+  building the conversion for a main-actor method passed that way.
 
 ## Branches and releases
 
