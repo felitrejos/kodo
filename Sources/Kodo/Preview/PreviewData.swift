@@ -5,7 +5,8 @@ import Foundation
 enum PreviewData {
     static let speakers = AudioDevice(id: 1, uid: "speakers", name: "MacBook Pro Speakers", transport: .builtIn, outputChannels: 2, inputChannels: 0)
     static let klipsch = AudioDevice(id: 2, uid: "klipsch", name: "Klipsch KD-400", transport: .bluetooth, outputChannels: 2, inputChannels: 0)
-    static let airPods = AudioDevice(id: 3, uid: "airpods", name: "Felipe’s AirPods Pro", transport: .bluetooth, outputChannels: 2, inputChannels: 1)
+    static let airPods = AudioDevice(id: 3, uid: "airpods", name: "AirPods Pro", transport: .bluetooth, outputChannels: 2, inputChannels: 1)
+    static let airPodsMax = AudioDevice(id: 5, uid: "airpodsmax", name: "AirPods Max", transport: .bluetooth, outputChannels: 2, inputChannels: 1)
     static let display = AudioDevice(id: 4, uid: "display", name: "LG UltraFine", transport: .display, outputChannels: 2, inputChannels: 0)
 
     static func app(_ name: String, at path: String, playing: Bool) -> AudioApp {
@@ -16,7 +17,7 @@ enum PreviewData {
         app("Music", at: "/System/Applications/Music.app", playing: true),
         app("Dia", at: "/Applications/Dia.app", playing: true),
         app("Discord", at: "/Applications/Discord.app", playing: true),
-        app("Podcasts", at: "/System/Applications/Podcasts.app", playing: false),
+        app("Zoom", at: "/Applications/zoom.us.app", playing: false),
     ]
 
     static var settings: KodoSettings {
@@ -35,6 +36,6 @@ enum PreviewData {
     }
 
     static func model(isSyncOn: Bool = true) -> KodoModel {
-        KodoModel(previewOutputs: [speakers, klipsch, airPods, display], apps: apps, settings: settings, isSyncOn: isSyncOn, defaultOutputID: klipsch.id)
+        KodoModel(previewOutputs: [speakers, klipsch, airPods, airPodsMax, display], apps: apps, settings: settings, isSyncOn: isSyncOn, defaultOutputID: klipsch.id)
     }
 }
