@@ -55,6 +55,11 @@ final class KodoModel {
     @ObservationIgnored private var runningSetup: EngineSetup?
     @ObservationIgnored private var calibrationTask: Task<Void, Never>?
     @ObservationIgnored private var appWatchTask: Task<Void, Never>?
+    /// Apps resting at full volume, waiting to be handed back to macOS untouched.
+    @ObservationIgnored private var releaseTasks: [String: Task<Void, Never>] = [:]
+    /// How long an app has to sit at 100% before Kodo stops capturing it. Long enough that
+    /// dragging around full volume doesn't keep tapping and untapping the app.
+    private static let releaseDelay: Duration = .seconds(2)
     @ObservationIgnored private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
     @ObservationIgnored private let isPreview: Bool
 
@@ -62,6 +67,8 @@ final class KodoModel {
         isPreview = false
         outputs = AudioDevice.all().filter(\.isOutput)
         isSyncOn = settings.syncEnabled && !activeOutputs.isEmpty
+        // An app left at full volume needs nothing from Kodo; don't capture it at launch.
+        settings.appVolumes = settings.appVolumes.filter { id, volume in !Self.isFullVolume(volume) || settings.mutedApps.contains(id) }
         refreshDefaultOutput()
         refreshApps()
         listenForDeviceChanges()
@@ -268,12 +275,33 @@ final class KodoModel {
     // MARK: - App actions
 
     func setVolume(_ volume: Float, for app: AudioApp) {
-        // Kept even at 100%, so dragging around full volume doesn't keep moving the app
-        // between its own tap and the global one.
         settings.appVolumes[app.id] = volume
         // Reaching for the slider means you want to hear it.
         settings.mutedApps.remove(app.id)
         reconcileEngine()
+        scheduleRelease(of: app)
+    }
+
+    private static func isFullVolume(_ volume: Float) -> Bool {
+        volume >= 0.995
+    }
+
+    /// Once an app has rested at 100% and unmuted for a moment, stops capturing it, so Kodo
+    /// only records system audio while something actually needs it.
+    private func scheduleRelease(of app: AudioApp) {
+        releaseTasks[app.id]?.cancel()
+        guard Self.isFullVolume(volume(for: app)), !isMuted(app) else {
+            releaseTasks[app.id] = nil
+            return
+        }
+        releaseTasks[app.id] = Task { [weak self] in
+            try? await Task.sleep(for: Self.releaseDelay)
+            guard let self, !Task.isCancelled, Self.isFullVolume(volume(for: app)), !isMuted(app) else {
+                return
+            }
+            releaseTasks[app.id] = nil
+            reset(app)
+        }
     }
 
     func toggleMute(_ app: AudioApp) {
@@ -281,6 +309,7 @@ final class KodoModel {
             settings.mutedApps.insert(app.id)
         }
         reconcileEngine()
+        scheduleRelease(of: app)
     }
 
     /// Puts the app back to normal: full volume, unmuted, untapped.
