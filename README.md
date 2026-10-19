@@ -77,7 +77,7 @@ remembers your speakers, volumes, and Sync between launches.
 1. Download `Kodo-<version>.dmg` from the
    [latest release](https://github.com/felitrejos/kodo/releases/latest) and
    drag Kodo into Applications.
-2. Open Kodo. It isn't notarized yet, so macOS blocks the first launch: go to
+2. Open Kodo. The first time, macOS stops it from opening: go to
    **System Settings → Privacy & Security** and click **Open Anyway**.
 3. Allow Kodo to record system audio when macOS asks.
 
