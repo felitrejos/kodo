@@ -35,9 +35,10 @@ final class KodoModel {
 
     private(set) var outputs: [AudioDevice] = []
     private(set) var defaultOutputID: AudioObjectID?
-    /// The current output's own volume, for the slider when Sync is off.
-    private(set) var defaultOutputVolume: Float?
-    private(set) var defaultOutputMuted: Bool?
+    /// Each output's own volume and mute, where it has them, read once a second so the
+    /// sliders follow the volume keys and Control Center.
+    private(set) var hardwareVolumes: [AudioObjectID: Float] = [:]
+    private(set) var hardwareMutes: [AudioObjectID: Bool] = [:]
     /// Every app with an audio connection, playing or not.
     private(set) var apps: [AudioApp] = []
     private(set) var calibration: CalibrationProgress?
@@ -111,8 +112,8 @@ final class KodoModel {
         settings.syncEnabled = isSyncOn
         self.settings = settings
         self.defaultOutputID = defaultOutputID
-        defaultOutputVolume = 0.6
-        defaultOutputMuted = false
+        hardwareVolumes = Dictionary(uniqueKeysWithValues: previewOutputs.map { ($0.id, Float(0.6)) })
+        hardwareMutes = Dictionary(uniqueKeysWithValues: previewOutputs.map { ($0.id, false) })
         lastHeard = Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Date.now) })
         heardApps = Set(apps.map(\.id))
     }
@@ -189,9 +190,10 @@ final class KodoModel {
     /// The menu bar drum: solid while Sync plays, outlined otherwise, slashed when muted.
     var menuBarStyle: MenuBarIcon.Style {
         if isSyncPlaying {
-            return activeOutputs.allSatisfy { group.mutedOutputs.contains($0.uid) } ? .muted : .filled
+            return activeOutputs.allSatisfy(isMuted) ? .muted : .filled
         }
-        return defaultOutputMuted == true ? .muted : .outlined
+        let output = outputs.first { $0.id == defaultOutputID }
+        return output.map(isMuted) == true ? .muted : .outlined
     }
 
     /// Whether a speaker is lit: part of the group with Sync on, the Mac's output with it off.
@@ -219,20 +221,24 @@ final class KodoModel {
         group.trims[output.uid] ?? 0
     }
 
-    /// The slider value for a speaker row: Kodo's own level with Sync on, the device's
-    /// volume with it off.
+    /// The slider value for a speaker row: the speaker's own volume, like Control Center,
+    /// so it's never a second volume stacked on one you can't see. Only a speaker without a
+    /// volume of its own uses Kodo's level, and only in Sync. Nil when the row has no slider.
     func volume(for output: AudioDevice) -> Float? {
-        if isSyncOn {
-            return group.volumes[output.uid] ?? 1
+        guard isSyncOn || output.id == defaultOutputID else {
+            return nil
         }
-        return output.id == defaultOutputID ? defaultOutputVolume : nil
+        if let volume = hardwareVolumes[output.id] {
+            return volume
+        }
+        return isSyncOn ? group.volumes[output.uid] ?? 1 : nil
     }
 
     func isMuted(_ output: AudioDevice) -> Bool {
-        if isSyncOn {
-            return group.mutedOutputs.contains(output.uid)
+        if let muted = hardwareMutes[output.id] {
+            return muted
         }
-        return output.id == defaultOutputID && defaultOutputMuted == true
+        return isSyncOn && group.mutedOutputs.contains(output.uid)
     }
 
     /// The app's gain: 0 to 1, or up to 2 when boosted.
@@ -330,32 +336,33 @@ final class KodoModel {
     }
 
     func setVolume(_ volume: Float, for output: AudioDevice) {
-        if isSyncOn {
+        guard hardwareVolumes[output.id] != nil else {
             settings.activeGroup.volumes[output.uid] = volume
             settings.activeGroup.mutedOutputs.remove(output.uid)
             return
         }
-        if defaultOutputMuted == true {
-            defaultOutputMuted = false
-            if !isPreview {
-                output.setHardwareMute(false)
-            }
+        // Reaching for the slider means you want to hear it.
+        if hardwareMutes[output.id] == true {
+            setHardwareMute(false, for: output)
         }
-        defaultOutputVolume = volume
+        hardwareVolumes[output.id] = volume
         if !isPreview {
             output.setHardwareVolume(volume)
         }
     }
 
     func toggleMute(_ output: AudioDevice) {
-        if isSyncOn {
+        guard let muted = hardwareMutes[output.id] else {
             if settings.activeGroup.mutedOutputs.remove(output.uid) == nil {
                 settings.activeGroup.mutedOutputs.insert(output.uid)
             }
             return
         }
-        let muted = !(defaultOutputMuted ?? false)
-        defaultOutputMuted = muted
+        setHardwareMute(!muted, for: output)
+    }
+
+    private func setHardwareMute(_ muted: Bool, for output: AudioDevice) {
+        hardwareMutes[output.id] = muted
         if !isPreview {
             output.setHardwareMute(muted)
         }
@@ -660,9 +667,11 @@ final class KodoModel {
     private func applyMix(moving movedOutput: AudioDevice? = nil) {
         for (destination, slot) in slots {
             if destination == .kodo, slot.setup.capturesEverything {
-                var gains = group.volumes
-                for uid in group.mutedOutputs {
-                    gains[uid] = 0
+                // Kodo's own level only for speakers that have no volume of their own; the
+                // others play at full level and their own volume does the rest.
+                var gains: [String: Float] = [:]
+                for output in activeOutputs where hardwareVolumes[output.id] == nil {
+                    gains[output.uid] = group.mutedOutputs.contains(output.uid) ? 0 : group.volumes[output.uid] ?? 1
                 }
                 var delays = currentDelays()
                 if let movedOutput {
@@ -756,7 +765,7 @@ final class KodoModel {
                 if apps != before {
                     reconcileEngines()
                 }
-                refreshDefaultOutputVolume()
+                refreshHardwareLevels()
             }
         }
     }
@@ -841,18 +850,24 @@ final class KodoModel {
         if id != defaultOutputID {
             defaultOutputID = id
         }
-        refreshDefaultOutputVolume()
+        refreshHardwareLevels()
     }
 
-    private func refreshDefaultOutputVolume() {
-        let output = outputs.first { $0.id == defaultOutputID }
-        let volume = output?.hardwareVolume
-        if volume != defaultOutputVolume {
-            defaultOutputVolume = volume
+    private func refreshHardwareLevels() {
+        guard !isPreview else {
+            return
         }
-        let muted = output?.hardwareMute
-        if muted != defaultOutputMuted {
-            defaultOutputMuted = muted
+        var volumes: [AudioObjectID: Float] = [:]
+        var mutes: [AudioObjectID: Bool] = [:]
+        for output in outputs {
+            volumes[output.id] = output.hardwareVolume
+            mutes[output.id] = output.hardwareMute
+        }
+        if volumes != hardwareVolumes {
+            hardwareVolumes = volumes
+        }
+        if mutes != hardwareMutes {
+            hardwareMutes = mutes
         }
     }
 }
