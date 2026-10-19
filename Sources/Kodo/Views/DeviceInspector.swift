@@ -64,11 +64,11 @@ struct DeviceInspector: View {
         .task(id: output.id, loadDetails)
     }
 
-    /// What calibration means for this speaker, in terms of what you hear. The raw
+    /// What fine-tuning means for this speaker, in terms of what you hear. The raw
     /// measurement includes delays every speaker shares, so only the difference is shown.
     private var syncStatus: String {
         guard model.measurement(for: output) != nil, let delay = model.delay(for: output) else {
-            return "Not calibrated"
+            return "Approximate"
         }
         if delay == 0 {
             return "Sets the pace"

@@ -18,7 +18,7 @@ struct DeviceRow: View {
                         .lineLimit(1)
                     Text(detail)
                         .font(.caption)
-                        .foregroundStyle(needsCalibration ? .orange : .secondary)
+                        .foregroundStyle(.secondary)
                         .monospacedDigit()
                         .lineLimit(1)
                 }
@@ -62,16 +62,9 @@ struct DeviceRow: View {
         return "Play through \(output.name)"
     }
 
-    private var needsCalibration: Bool {
-        model.isSyncOn && model.isSelected(output) && model.activeOutputs.count > 1 && model.measurement(for: output) == nil
-    }
-
     private var detail: String {
         if model.isHidden(output) {
             return "Hidden"
-        }
-        if needsCalibration {
-            return "Not calibrated"
         }
         if model.isSyncOn, model.isSelected(output), let delay = model.delay(for: output), delay >= 0.0005 {
             return "\(output.kindDescription) · waits \((delay * 1000).formatted(.number.precision(.fractionLength(0)))) ms"

@@ -36,8 +36,9 @@ To build it yourself instead, run `./scripts/build-app.sh --install`.
 - **Apps:** every app playing sound gets a volume slider. Click the speaker
   inside a slider to mute that app. This works with or without Speaker Sync.
 - **Speakers:** with Speaker Sync off, click a speaker to play through it, like
-  Control Center. Turn Sync on, click the speakers you want in the group, then
-  press **Calibrate** with the Mac where you usually listen.
+  Control Center. Turn Sync on and click the speakers you want in the group.
+  They play roughly in step right away; press **Fine-tune** with the Mac where
+  you usually listen to match them exactly.
 - **Details:** hover over a speaker and click ⓘ for its connection, sample
   rate, format, and delay, or to hide it from Kodo.
 
@@ -50,8 +51,10 @@ macOS asks once for system audio recording and once for the microphone.
 - The tap and the chosen speakers join one private aggregate device, so they
   share a clock and stay aligned over long sessions.
 - Each speaker reads the captured audio from a shared buffer at its own delay.
-- Calibration plays a sweep through one speaker at a time and times its arrival
-  at the built-in mic with an FFT cross-correlation.
+- macOS lines speakers up from the delay each one reports about itself. Those
+  reports are approximate, so fine-tuning plays a sweep through one speaker at
+  a time and times its arrival at the built-in mic with an FFT
+  cross-correlation.
 
 ## Development
 

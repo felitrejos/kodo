@@ -19,14 +19,14 @@ struct CalibrateRow: View {
             } else {
                 Text(note)
                     .font(.caption)
-                    .foregroundStyle(model.needsCalibration ? .orange : .secondary)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
-                Button("Calibrate", systemImage: "waveform.badge.mic", action: calibrate)
+                Button("Fine-tune", systemImage: "waveform.badge.mic", action: calibrate)
                     .controlSize(.small)
                     .buttonStyle(.glass)
                     .disabled(model.activeOutputs.count < 2)
-                    .help("Plays a short chirp through each speaker and times it with your Mac's microphone")
+                    .help("Times each speaker with a short chirp and your Mac's microphone, for an exact match")
             }
         }
     }
@@ -35,13 +35,15 @@ struct CalibrateRow: View {
         if model.activeOutputs.count < 2 {
             return "Add another speaker to sync"
         }
+        // Sync already works from what each speaker reports about itself; measuring is the
+        // optional step from close to exact.
         if model.needsCalibration {
-            return "Calibrate to line up new speakers"
+            return "Approximate sync"
         }
         guard let date = model.settings.calibratedAt else {
-            return "Calibrated"
+            return "Fine-tuned"
         }
-        return "Calibrated \(date.formatted(.relative(presentation: .named)))"
+        return "Fine-tuned \(date.formatted(.relative(presentation: .named)))"
     }
 
     private func calibrate() {
