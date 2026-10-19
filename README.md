@@ -70,7 +70,8 @@ like Control Center's: click a speaker to play through it, and slide to set its
 volume.
 
 **Know your devices.** Hover over a speaker and click ⓘ to see how it's
-connected, its sample rate and format, and how Kodo keeps it in step. Hide the
+connected, its sample rate and format, and how Kodo keeps it in step. If a
+speaker keeps cutting out, Kodo says so and suggests what to try. Hide the
 devices you never use.
 
 **Stays out of the way.** Kodo lives in the menu bar as a little taiko drum

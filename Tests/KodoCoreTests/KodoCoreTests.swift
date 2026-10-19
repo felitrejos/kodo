@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import KodoCore
 
@@ -207,5 +208,41 @@ struct ConsensusTests {
     @Test func refusesWhenRunsDisagree() {
         #expect(AlignmentPlan.consensus([0.36, 0.46, 0.41, 0.39, 0.50], tolerance: 0.003, minimumAgreeing: 3) == nil)
         #expect(AlignmentPlan.consensus([0.36, 0.3601], tolerance: 0.003, minimumAgreeing: 3) == nil)
+    }
+}
+
+struct DropoutLogTests {
+    private let start = Date(timeIntervalSinceReferenceDate: 0)
+
+    @Test func oneGlitchIsNoWarning() {
+        var log = DropoutLog<String>()
+        log.record("kitchen", at: start)
+        #expect(log.cuttingOut(at: start).isEmpty)
+    }
+
+    @Test func repeatedDropoutsWarn() {
+        var log = DropoutLog<String>()
+        for minute in [0.0, 2, 4] {
+            log.record("kitchen", at: start.addingTimeInterval(minute * 60))
+        }
+        #expect(log.cuttingOut(at: start.addingTimeInterval(5 * 60)) == ["kitchen"])
+    }
+
+    @Test func aBurstCountsOnce() {
+        var log = DropoutLog<String>()
+        for second in [0.0, 1, 2, 3] {
+            log.record("kitchen", at: start.addingTimeInterval(second))
+        }
+        #expect(log.count(for: "kitchen", at: start.addingTimeInterval(10)) == 1)
+    }
+
+    @Test func oldDropoutsAreForgotten() {
+        var log = DropoutLog<String>()
+        for minute in [0.0, 1, 2] {
+            log.record("kitchen", at: start.addingTimeInterval(minute * 60))
+        }
+        #expect(log.cuttingOut(at: start.addingTimeInterval(3 * 60)) == ["kitchen"])
+        #expect(log.cuttingOut(at: start.addingTimeInterval(13 * 60)).isEmpty)
+        #expect(log.count(for: "kitchen", at: start.addingTimeInterval(13 * 60)) == 0)
     }
 }

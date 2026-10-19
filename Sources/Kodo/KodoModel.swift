@@ -149,6 +149,13 @@ final class KodoModel {
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
     @ObservationIgnored private var publishedControlState: SyncControlState?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// Recent dropouts per speaker UID: a gap in the engine's timeline, a speaker restarting
+    /// its stream mid-song, or a speaker falling out of the group.
+    @ObservationIgnored private var dropoutLog = DropoutLog<String>()
+    /// Speakers that keep cutting out. Observed, and changing only when one starts or stops.
+    private(set) var cuttingOut: Set<String> = []
+    /// The Sync engine's glitch count when last looked at, to notice new ones.
+    @ObservationIgnored private var seenGlitches: (engine: ObjectIdentifier, count: Int)?
 
     init() {
         isPreview = false
@@ -1134,6 +1141,9 @@ final class KodoModel {
             guard !changed.isEmpty else {
                 return
             }
+            for output in activeOutputs where isSyncPlaying && changed.contains(output.id) {
+                recordDropout(output.uid)
+            }
             for (destination, slot) in slots where slot.engine.outputs.contains(where: { changed.contains($0.id) }) {
                 slots[destination] = nil
             }
@@ -1284,12 +1294,53 @@ final class KodoModel {
                     return
                 }
                 appsMayHaveChanged()
+                checkForDropouts()
                 if isMenuOpen {
                     // The sliders follow changes made in Control Center. With the menu
                     // closed nothing shows them, and opening it reads them fresh.
                     refreshHardwareLevels()
                 }
             }
+        }
+    }
+
+    // MARK: - Dropouts
+
+    func isCuttingOut(_ output: AudioDevice) -> Bool {
+        cuttingOut.contains(output.uid)
+    }
+
+    func dropoutCount(for output: AudioDevice) -> Int {
+        dropoutLog.count(for: output.uid, at: .now)
+    }
+
+    /// New glitches in the Sync engine since the last look. The group runs on the lead's
+    /// clock, so a stall in the lead's link shows up here; it's charged to the lead.
+    private func checkForDropouts() {
+        guard let slot = slots[.kodo], slot.setup.capturesEverything else {
+            seenGlitches = nil
+            updateCuttingOut()
+            return
+        }
+        let health = slot.engine.health
+        let count = health.discontinuities + health.overloads
+        let engine = ObjectIdentifier(slot.engine)
+        if let seen = seenGlitches, seen.engine == engine, count > seen.count {
+            recordDropout(slot.engine.clockDevice.uid)
+        }
+        seenGlitches = (engine, count)
+        updateCuttingOut()
+    }
+
+    private func recordDropout(_ uid: String) {
+        dropoutLog.record(uid, at: .now)
+        updateCuttingOut()
+    }
+
+    private func updateCuttingOut() {
+        let current = dropoutLog.cuttingOut(at: .now)
+        if current != cuttingOut {
+            cuttingOut = current
         }
     }
 
@@ -1397,8 +1448,12 @@ final class KodoModel {
     private func devicesChanged() {
         let current = AudioDevice.all().filter(\.isOutput)
         if current != outputs {
+            let wasPlaying = isSyncPlaying ? Set(activeOutputs.map(\.uid)) : []
             outputs = current
             reportedLatencies = [:]
+            for uid in wasPlaying.subtracting(activeOutputs.map(\.uid)) {
+                recordDropout(uid)
+            }
         }
         let kodo = KodoOutput.device()
         if kodo != kodoOutput {

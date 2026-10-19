@@ -74,6 +74,13 @@ its codec. The
 aggregate also pads faster members to match the slowest one's reported
 latency, which gets speakers roughly in step before any measuring.
 
+**Dropouts.** Kodo can't see radio packets a speaker loses, only what shows
+on the Mac's side: a gap in the Sync engine's timeline (charged to the lead,
+whose clock the group runs on, so a stall in its link shows up there), a
+speaker restarting its stream mid-song, and a speaker falling out of the group.
+`DropoutLog` counts them per speaker, a burst within 5 s as one, and a speaker
+with three in ten minutes is shown as cutting out.
+
 **Volume.** Speaker sliders drive each device's own volume and mute. The volume
 keys only change the Mac's output, so while Sync plays, Kodo watches that
 device and applies the same change to the rest of the group, keeping each

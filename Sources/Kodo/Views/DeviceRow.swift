@@ -18,7 +18,7 @@ struct DeviceRow: View {
                         .lineLimit(1)
                     Text(detail)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(isCuttingOut ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                         .monospacedDigit()
                         .lineLimit(1)
                 }
@@ -62,9 +62,17 @@ struct DeviceRow: View {
         return "Play through \(output.name)"
     }
 
+    /// Only while it's playing in the group, where the dropouts were heard.
+    private var isCuttingOut: Bool {
+        model.isSyncOn && model.isSelected(output) && model.isCuttingOut(output)
+    }
+
     private var detail: String {
         if model.isHidden(output) {
             return "Hidden"
+        }
+        if isCuttingOut {
+            return "\(output.kindDescription) · cutting out"
         }
         if model.isSyncOn, model.isSelected(output), let delay = model.delay(for: output), delay >= 0.0005 {
             return "\(output.kindDescription) · waits \((delay * 1000).formatted(.number.precision(.fractionLength(0)))) ms"

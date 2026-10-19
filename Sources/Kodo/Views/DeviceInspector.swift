@@ -42,6 +42,9 @@ struct DeviceInspector: View {
                                 .gridCellColumns(2)
                         }
                         InspectorRow(label: "Sync", value: syncStatus)
+                        if dropouts > 0 {
+                            InspectorRow(label: "Dropouts", value: dropouts == 1 ? "1 in the last 10 min" : "\(dropouts) in the last 10 min")
+                        }
                         if model.isSyncOn {
                             GridRow {
                                 Text("Nudge")
@@ -54,6 +57,13 @@ struct DeviceInspector: View {
                 .font(.callout)
             }
 
+            if model.isCuttingOut(output) {
+                Label(advice, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Divider()
             Toggle("Hide from Kodo", isOn: Binding(get: { model.isHidden(output) }, set: { model.setHidden($0, for: output) }))
                 .toggleStyle(.switch)
@@ -62,6 +72,22 @@ struct DeviceInspector: View {
         .padding(16)
         .frame(width: 280)
         .task(id: output.id, loadDetails)
+    }
+
+    private var dropouts: Int {
+        model.dropoutCount(for: output)
+    }
+
+    /// Kodo hears the dropouts on the Mac's side; the cause is nearly always the link.
+    private var advice: String {
+        switch output.transport {
+        case .bluetooth:
+            "It keeps cutting out. Bluetooth reaches about 10 m in the open, much less through walls. Move it closer to the Mac, or away from the Wi-Fi router and microwave."
+        case .airPlay:
+            "It keeps cutting out. AirPlay needs a steady Wi-Fi signal; move it, or the router, so they're closer."
+        default:
+            "It keeps cutting out. Check its cable or connection, and that the Mac isn't too busy."
+        }
     }
 
     /// What fine-tuning means for this speaker, in terms of what you hear. The raw
