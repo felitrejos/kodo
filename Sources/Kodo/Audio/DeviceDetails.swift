@@ -10,8 +10,7 @@ struct DeviceDetails: Equatable {
     var inputChannels: Int
     var bitDepth: Int?
     var isFloat: Bool
-    /// What the device says its output delay is. Bluetooth tends to report less than it has,
-    /// which is why Kodo measures instead.
+    /// What the driver says its output delay is. Kodo doesn't rely on it; it measures.
     var reportedLatency: Double?
 
     private static let standardRates: [Double] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000]

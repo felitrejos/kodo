@@ -4,9 +4,14 @@ import KodoCore
 
 /// Plays the captured taps through several outputs at once, each with its own delay and volume.
 ///
-/// All outputs and the tap live in one private aggregate device. That puts them on a single
+/// All outputs and the taps live in one private aggregate device. That puts them on a single
 /// clock: Core Audio's drift compensation resamples every device that is not the clock source,
 /// so outputs that start aligned stay aligned over a long session.
+///
+/// The aggregate also pads its faster members to match the slowest one's reported latency.
+/// That gets an uncalibrated speaker roughly in step, but the reported numbers are only
+/// approximate: the aggregate ignores the built-in speakers' stream latency, for one. Kodo's
+/// calibration measures what's left and its delay line closes the gap.
 @MainActor
 final class UnisonEngine {
     /// Bluetooth needs a few hundred milliseconds and AirPlay about two seconds, so four
@@ -43,17 +48,19 @@ final class UnisonEngine {
             kAudioAggregateDeviceNameKey: "Kodo",
             kAudioAggregateDeviceUIDKey: "kodo.aggregate.\(UUID().uuidString)",
             kAudioAggregateDeviceMainSubDeviceKey: clockDevice.uid,
-            kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: false,
-            kAudioAggregateDeviceTapAutoStartKey: true,
+            // These flags must be numbers, as the headers say. A Swift Bool bridges to a
+            // CFBoolean, which the drift key silently ignores, leaving the speaker uncorrected.
+            kAudioAggregateDeviceIsPrivateKey: 1,
+            kAudioAggregateDeviceIsStackedKey: 0,
+            kAudioAggregateDeviceTapAutoStartKey: 1,
             kAudioAggregateDeviceSubDeviceListKey: outputs.map { output in
                 [
                     kAudioSubDeviceUIDKey: output.uid,
-                    kAudioSubDeviceDriftCompensationKey: output.uid != clockDevice.uid,
+                    kAudioSubDeviceDriftCompensationKey: output.uid == clockDevice.uid ? 0 : 1,
                 ] as [String: Any]
             },
             kAudioAggregateDeviceTapListKey: taps.map { tap in
-                [kAudioSubTapUIDKey: tap.uid, kAudioSubTapDriftCompensationKey: true] as [String: Any]
+                [kAudioSubTapUIDKey: tap.uid, kAudioSubTapDriftCompensationKey: 1] as [String: Any]
             },
         ]
 

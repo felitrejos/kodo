@@ -34,14 +34,20 @@ struct DeviceInspector: View {
                     InspectorRow(label: "Format", value: format(details))
                     InspectorRow(label: "Channels", value: channels(details))
                     if let latency = details.reportedLatency {
-                        InspectorRow(label: "Reported delay", value: milliseconds(latency))
+                        InspectorRow(label: "Driver latency", value: milliseconds(latency))
                     }
-                    InspectorRow(label: "Measured", value: measured)
-                    if model.isSyncOn, model.isSelected(output) {
+                    if model.isSelected(output) {
                         GridRow {
-                            Text("Nudge")
-                                .foregroundStyle(.secondary)
-                            NudgeControl(trim: model.trim(for: output), nudge: nudge)
+                            Divider()
+                                .gridCellColumns(2)
+                        }
+                        InspectorRow(label: "Sync", value: syncStatus)
+                        if model.isSyncOn {
+                            GridRow {
+                                Text("Nudge")
+                                    .foregroundStyle(.secondary)
+                                NudgeControl(trim: model.trim(for: output), nudge: nudge)
+                            }
                         }
                     }
                 }
@@ -58,11 +64,19 @@ struct DeviceInspector: View {
         .task(id: output.id, loadDetails)
     }
 
-    private var measured: String {
-        guard let measurement = model.measurement(for: output) else {
+    /// What calibration means for this speaker, in terms of what you hear. The raw
+    /// measurement includes delays every speaker shares, so only the difference is shown.
+    private var syncStatus: String {
+        guard model.measurement(for: output) != nil, let delay = model.delay(for: output) else {
             return "Not calibrated"
         }
-        return "\(milliseconds(measurement.latency)) to the mic"
+        if delay == 0 {
+            return "Sets the pace"
+        }
+        if delay < 0.001 {
+            return "In step"
+        }
+        return "Waits \(milliseconds(delay)) to line up"
     }
 
     private func format(_ details: DeviceDetails) -> String {
