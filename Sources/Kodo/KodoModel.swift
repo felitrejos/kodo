@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import CoreAudio
 import KodoCore
 import Observation
@@ -88,6 +89,15 @@ final class KodoModel {
     /// Saved measurements whose runs disagreed by more than this are dropped at launch.
     private static let trustedSpread = 0.005
     @ObservationIgnored private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
+    /// Each group speaker's volume as a share of the Mac output's, so the volume keys can move
+    /// the whole group without changing its balance.
+    @ObservationIgnored private var groupBalance: [AudioObjectID: Float] = [:]
+    /// The Mac output's last known volume and mute, to tell the volume keys apart from
+    /// Kodo's own changes.
+    @ObservationIgnored private var followedVolume: Float?
+    @ObservationIgnored private var followedMute: Bool?
+    /// Listens to the Mac output's volume and mute, so the group follows the keys at once.
+    @ObservationIgnored private var outputLevelListener: (device: AudioObjectID, block: AudioObjectPropertyListenerBlock)?
     @ObservationIgnored private let isPreview: Bool
 
     init() {
@@ -107,6 +117,7 @@ final class KodoModel {
         listenForDeviceChanges()
         watchApps()
         reconcileEngines()
+        rememberBalance()
         scheduleSyncChecks()
     }
 
@@ -286,6 +297,7 @@ final class KodoModel {
         problem = nil
         settings.activeGroupID = id
         reconcileEngines()
+        rememberBalance()
     }
 
     /// Starts an empty group and switches to it, so you can pick its speakers right away.
@@ -319,6 +331,7 @@ final class KodoModel {
         problem = nil
         settings.syncEnabled = on
         reconcileEngines()
+        rememberBalance()
     }
 
     /// With Sync on, adds or removes the speaker from the group. With it off, plays through it.
@@ -329,6 +342,7 @@ final class KodoModel {
                 settings.activeGroup.outputs.insert(output.uid)
             }
             reconcileEngines()
+            rememberBalance()
             return
         }
         guard !isPreview else {
@@ -356,6 +370,8 @@ final class KodoModel {
         if !isPreview {
             output.setHardwareVolume(volume)
         }
+        // Moving one speaker on purpose sets a new balance for the volume keys to keep.
+        rememberBalance()
     }
 
     func toggleMute(_ output: AudioDevice) {
@@ -373,6 +389,95 @@ final class KodoModel {
         if !isPreview {
             output.setHardwareMute(muted)
         }
+        if output.id == defaultOutputID {
+            followedMute = muted
+        }
+    }
+
+    // MARK: - Volume keys
+
+    /// Notes how loud each group speaker is next to the Mac's output, the balance the volume
+    /// keys keep. Called after anything that changes it on purpose.
+    private func rememberBalance() {
+        guard let defaultOutputID else {
+            return
+        }
+        followedVolume = hardwareVolumes[defaultOutputID]
+        followedMute = hardwareMutes[defaultOutputID]
+        guard let level = followedVolume, level > 0.001 else {
+            return
+        }
+        groupBalance = Dictionary(uniqueKeysWithValues: activeOutputs.compactMap { output in
+            hardwareVolumes[output.id].map { (output.id, $0 / level) }
+        })
+    }
+
+    /// The volume keys and Control Center change only the Mac's output. While Sync plays,
+    /// Kodo carries the same change over to every other speaker in the group, keeping their
+    /// balance, so the keys turn the whole group up and down.
+    private func followOutputLevel() {
+        guard !isPreview, let defaultOutputID, let output = outputs.first(where: { $0.id == defaultOutputID }) else {
+            return
+        }
+        let volume = output.hardwareVolume
+        let muted = output.hardwareMute
+        defer {
+            followedVolume = volume
+            followedMute = muted
+        }
+        guard isSyncPlaying, let volume, let previous = followedVolume else {
+            return
+        }
+        let others = activeOutputs.filter { $0.id != defaultOutputID }
+
+        if let muted, let wasMuted = followedMute, muted != wasMuted {
+            for other in others where hardwareMutes[other.id] != nil {
+                setHardwareMute(muted, for: other)
+            }
+        }
+        guard abs(volume - previous) > 0.001 else {
+            return
+        }
+        for other in others {
+            guard let current = hardwareVolumes[other.id] else {
+                continue
+            }
+            // A speaker joined since the balance was noted: take its share from right now.
+            let share = groupBalance[other.id] ?? (previous > 0.001 ? current / previous : 1)
+            groupBalance[other.id] = share
+            let target = min(max(share * volume, 0), 1)
+            hardwareVolumes[other.id] = target
+            other.setHardwareVolume(target)
+        }
+        hardwareVolumes[defaultOutputID] = volume
+    }
+
+    /// Watches the Mac output's own volume and mute, moving the watch when the output changes.
+    private func listenToOutputLevel() {
+        guard !isPreview, outputLevelListener?.device != defaultOutputID else {
+            return
+        }
+        let selectors = [kAudioHardwareServiceDeviceProperty_VirtualMainVolume, kAudioDevicePropertyMute]
+        if let previous = outputLevelListener {
+            for selector in selectors {
+                var address = AudioObjectID.address(selector, scope: kAudioObjectPropertyScopeOutput)
+                AudioObjectRemovePropertyListenerBlock(previous.device, &address, .main, previous.block)
+            }
+            outputLevelListener = nil
+        }
+        guard let device = defaultOutputID else {
+            return
+        }
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                self?.followOutputLevel()
+            }
+        }
+        for selector in selectors {
+            var address = AudioObjectID.address(selector, scope: kAudioObjectPropertyScopeOutput)
+            AudioObjectAddPropertyListenerBlock(device, &address, .main, block)
+        }
+        outputLevelListener = (device, block)
     }
 
     func nudge(_ output: AudioDevice, by seconds: Double) {
@@ -863,6 +968,7 @@ final class KodoModel {
         }
         refreshDefaultOutput()
         reconcileEngines()
+        rememberBalance()
     }
 
     private func refreshDefaultOutput() {
@@ -871,12 +977,15 @@ final class KodoModel {
             defaultOutputID = id
         }
         refreshHardwareLevels()
+        listenToOutputLevel()
     }
 
     private func refreshHardwareLevels() {
         guard !isPreview else {
             return
         }
+        // In case the listener missed a key press.
+        followOutputLevel()
         var volumes: [AudioObjectID: Float] = [:]
         var mutes: [AudioObjectID: Bool] = [:]
         for output in outputs {

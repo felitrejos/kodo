@@ -64,6 +64,12 @@ member except the clock device, so they stay aligned over long sessions. The
 aggregate also pads faster members to match the slowest one's reported
 latency, which gets speakers roughly in step before any measuring.
 
+**Volume.** Speaker sliders drive each device's own volume and mute. The volume
+keys only change the Mac's output, so while Sync plays, Kodo watches that
+device and applies the same change to the rest of the group, keeping each
+speaker's share of the output's volume. Moving a speaker in Kodo sets a new
+balance.
+
 **Fine-tuning.** Reported latencies are approximate; the aggregate ignores the
 built-in speakers' stream latency, for one. Fine-tuning plays a 0.4 s
 logarithmic sweep through one speaker at a time and records the microphone in
