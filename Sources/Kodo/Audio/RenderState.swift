@@ -21,6 +21,14 @@ final class RenderState: @unchecked Sendable {
     /// The gain each output actually played at last cycle. Each cycle ramps from it to the
     /// target, so muting or dragging the slider fades over one buffer instead of clicking.
     private let playedGains: UnsafeMutablePointer<Float>
+    /// The delay each output played at last cycle. A change crossfades from the old read
+    /// position to the new one over one buffer, so nudges and sync checks don't click.
+    private let playedDelays: UnsafeMutablePointer<Int>
+
+    /// Where the newest cycle's program starts in the delay line, and the host time its first
+    /// frame reached the outputs. Together they map program frames to wall-clock time.
+    let cycleStartFrame = Atomic<Int>(0)
+    let cycleHostTime = Atomic<UInt64>(0)
 
     let programMuted = Atomic<Bool>(false)
     /// Render cycles so far. Diagnostics only.
@@ -57,6 +65,8 @@ final class RenderState: @unchecked Sendable {
         gains.initialize(repeating: 1, count: groupCount)
         playedGains = .allocate(capacity: groupCount)
         playedGains.initialize(repeating: 1, count: groupCount)
+        playedDelays = .allocate(capacity: groupCount)
+        playedDelays.initialize(repeating: 0, count: groupCount)
 
         inputGains = .allocate(capacity: Self.maximumInputs)
         inputGains.initialize(repeating: 1, count: Self.maximumInputs)
@@ -75,6 +85,7 @@ final class RenderState: @unchecked Sendable {
         delays.deallocate()
         gains.deallocate()
         playedGains.deallocate()
+        playedDelays.deallocate()
         chirp.deallocate()
         inputGains.deallocate()
         playedInputGains.deallocate()
@@ -107,7 +118,10 @@ final class RenderState: @unchecked Sendable {
         }
         let frameCount = Int(first.mDataByteSize) / (MemoryLayout<Float>.size * Int(first.mNumberChannels))
 
+        let startFrame = delayLine.framesWritten
         captureProgram(from: input, frameCount: frameCount)
+        cycleStartFrame.store(startFrame, ordering: .relaxed)
+        cycleHostTime.store(outputTime.pointee.mHostTime, ordering: .releasing)
         let chirpGroup = startChirpIfRequested(outputTime: outputTime)
 
         for (bufferIndex, buffer) in outputs.enumerated() where bufferIndex < bufferCount {
@@ -117,14 +131,23 @@ final class RenderState: @unchecked Sendable {
             let group = bufferGroups[bufferIndex]
             let channels = Int(buffer.mNumberChannels)
             let delay = delays[group]
+            let previousDelay = playedDelays[group]
             let startGain = playedGains[group]
             let gainStep = (gains[group] - startGain) / Float(frameCount)
 
             for frame in 0..<frameCount {
                 let framesAgo = frameCount - frame + delay
                 let gain = startGain + gainStep * Float(frame + 1)
-                let left = delayLine.sample(channel: 0, framesAgo: framesAgo) * gain
-                let right = delayLine.sample(channel: 1, framesAgo: framesAgo) * gain
+                var left = delayLine.sample(channel: 0, framesAgo: framesAgo)
+                var right = delayLine.sample(channel: 1, framesAgo: framesAgo)
+                if previousDelay != delay {
+                    let fade = Float(frame + 1) / Float(frameCount)
+                    let oldFramesAgo = frameCount - frame + previousDelay
+                    left = left * fade + delayLine.sample(channel: 0, framesAgo: oldFramesAgo) * (1 - fade)
+                    right = right * fade + delayLine.sample(channel: 1, framesAgo: oldFramesAgo) * (1 - fade)
+                }
+                left *= gain
+                right *= gain
                 let chirpSample = group == chirpGroup ? chirpSample(at: frame) : 0
 
                 for channel in 0..<channels {
@@ -134,13 +157,14 @@ final class RenderState: @unchecked Sendable {
                     case (_, 1): right
                     default: 0
                     }
-                    data[frame * channels + channel] = program + chirpSample
+                    data[frame * channels + channel] = SoftClip.apply(program + chirpSample)
                 }
             }
         }
 
         for group in 0..<groupCount {
             playedGains[group] = gains[group]
+            playedDelays[group] = delays[group]
         }
         advanceChirp(by: frameCount, playing: chirpGroup >= 0)
         cycles.add(1, ordering: .relaxed)

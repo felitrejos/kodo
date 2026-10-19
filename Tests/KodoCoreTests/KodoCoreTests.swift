@@ -124,3 +124,75 @@ struct DelayLineTests {
         #expect(line.sample(channel: 0, framesAgo: 5) == 0)
     }
 }
+
+struct SoftClipTests {
+    @Test func leavesNormalLevelsAlone() {
+        #expect(SoftClip.apply(0.5) == 0.5)
+        #expect(SoftClip.apply(-0.9) == -0.9)
+    }
+
+    @Test func neverExceedsFullScaleAndStaysSmooth() {
+        let loud = SoftClip.apply(1.8)
+        #expect(loud <= 1 && loud > 0.98)
+        #expect(SoftClip.apply(-1.8) == -loud)
+        #expect(SoftClip.apply(0.95) > SoftClip.apply(0.92))
+    }
+}
+
+struct MusicAlignerTests {
+    /// Noise with a little memory, closer to music than white noise is.
+    private func music(count: Int, seed: UInt64) -> [Float] {
+        var state = seed
+        var last: Float = 0
+        return (0..<count).map { _ in
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            let white = Float(state >> 40) / Float(1 << 24) * 2 - 1
+            last = 0.85 * last + 0.15 * white
+            return last
+        }
+    }
+
+    @Test func findsBothSpeakersInARecording() {
+        let program = music(count: 48_000, seed: 3)
+        var recording = [Float](repeating: 0, count: 48_000 + 24_000)
+        for (index, sample) in program.enumerated() {
+            recording[index + 12_000] += sample
+            recording[index + 12_912] += 0.7 * sample
+        }
+
+        let arrivals = MusicAligner.arrivals(of: program, in: recording, maximumLag: 24_000, separation: 48)
+
+        #expect(Set(arrivals.prefix(2)) == [12_000, 12_912])
+    }
+
+    @Test func resamplesToTheRequestedLength() {
+        let samples = [Float](repeating: 1, count: 44_100)
+        #expect(abs(MusicAligner.resample(samples, from: 44_100, to: 48_000).count - 48_000) <= 2)
+    }
+}
+
+struct SyncCheckTests {
+    @Test func attributesEachArrivalByWhichOneMoved() throws {
+        let baseline = [0.250, 0.269]
+        let shifted = ["klipsch": [0.255, 0.269], "speakers": [0.250, 0.274]]
+
+        let arrivals = try #require(SyncCheck.arrivals(baseline: baseline, shifted: shifted, shift: 0.005))
+
+        #expect(abs(arrivals["klipsch", default: 0] - 0.250) < 1e-9)
+        #expect(abs(arrivals["speakers", default: 0] - 0.269) < 1e-9)
+        let corrections = try #require(SyncCheck.corrections(for: arrivals))
+        #expect(abs(corrections["klipsch", default: 0] - 0.019) < 1e-9)
+        #expect(corrections["speakers"] == 0)
+    }
+
+    @Test func overlappingArrivalsSplitWhenShifted() throws {
+        let arrivals = try #require(SyncCheck.arrivals(baseline: [0.250], shifted: ["a": [0.250, 0.255], "b": [0.250, 0.255]], shift: 0.005))
+        #expect(arrivals == ["a": 0.250, "b": 0.250])
+        #expect(SyncCheck.corrections(for: arrivals) == nil)
+    }
+
+    @Test func refusesAmbiguousOrLargeResults() {
+        #expect(SyncCheck.arrivals(baseline: [0.25, 0.26], shifted: ["a": [0.31]], shift: 0.005) == nil)
+        #expect(SyncCheck.corrections(for: ["a": 0.20, "b": 0.30]) == nil)
+    }
+}

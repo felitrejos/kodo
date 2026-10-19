@@ -48,6 +48,11 @@ apps so nothing is captured twice. With Sync off there's no global tap, only
 the adjusted apps, and everything else plays normally. When nothing needs Kodo,
 no engine runs at all.
 
+**Engines.** Kodo runs an engine only when something needs one: one for Speaker
+Sync or for adjusted apps on the Mac's output, plus one per speaker that an app
+is sent to. Each engine has its own aggregate and taps, and the Sync engine's
+global tap leaves out every app another engine captures.
+
 **Changing taps live.** A tap's exclusions can't change while it's in use, so
 `TapRouter` builds a new global tap and swaps the aggregate's whole tap list in
 one step. The aggregate keeps running through the swap, so playback and the
@@ -65,6 +70,16 @@ logarithmic sweep through one speaker at a time and records the microphone in
 a separate callback. Both sides are stamped with host time, so an FFT
 cross-correlation gives each speaker's arrival time. Three runs per speaker,
 combined by median, become a per-speaker delay in the shared delay line.
+Results belong to the group, since the aggregate pads each speaker differently
+depending on its company.
+
+**Keep in Sync.** Every ten minutes while a fine-tuned group plays, Kodo records
+three seconds of the microphone and compares it with what it played, using
+GCC-PHAT, which keeps only the phase of the cross spectrum so every speaker's
+arrival becomes a sharp spike even in music. To tell the spikes apart, it moves
+one speaker 5 ms later per listen and watches which spike follows. It corrects
+only when the answer is unambiguous and under 30 ms. Delay changes crossfade
+over one buffer, so the moves don't click.
 
 ## Conventions
 

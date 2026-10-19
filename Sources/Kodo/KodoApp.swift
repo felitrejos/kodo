@@ -41,7 +41,8 @@ struct KodoApp: App {
         MenuBarExtra {
             MenuContent(model: model)
         } label: {
-            Image(systemName: model.isSyncOn ? "hifispeaker.2.fill" : "hifispeaker.2")
+            let symbol = model.menuBarSymbol
+            Image(systemName: symbol.name, variableValue: symbol.level)
                 .accessibilityLabel("Kodo")
         }
         .menuBarExtraStyle(.window)

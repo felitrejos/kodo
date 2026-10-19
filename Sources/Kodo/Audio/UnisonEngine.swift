@@ -175,6 +175,29 @@ final class UnisonEngine {
         state.setGain(gain, forInput: input)
     }
 
+    /// What Kodo played, mixed to mono and before any speaker's delay, for the stretch that
+    /// reached the outputs starting at `hostTime`. Nil if it's no longer in the history.
+    func program(from hostTime: UInt64, seconds: Double) -> [Float]? {
+        var anchorTime: UInt64
+        var anchorFrame: Int
+        repeat {
+            anchorTime = state.cycleHostTime.load(ordering: .acquiring)
+            anchorFrame = state.cycleStartFrame.load(ordering: .relaxed)
+        } while anchorTime != state.cycleHostTime.load(ordering: .acquiring)
+
+        let offset = (Double(AudioConvertHostTimeToNanos(hostTime)) - Double(AudioConvertHostTimeToNanos(anchorTime))) / 1e9
+        let start = anchorFrame + Int((offset * sampleRate).rounded())
+        let count = Int(seconds * sampleRate)
+        let line = state.delayLine
+        // Stay clear of the oldest frames, which the audio thread is about to overwrite.
+        guard start >= line.framesWritten - line.capacity + Int(sampleRate * 0.5), start + count <= line.framesWritten else {
+            return nil
+        }
+        return (start..<start + count).map { frame in
+            (line.sample(channel: 0, atFrame: frame) + line.sample(channel: 1, atFrame: frame)) / 2
+        }
+    }
+
     /// Silences the captured audio so calibration chirps play into a quiet room.
     func setProgramMuted(_ muted: Bool) {
         state.programMuted.store(muted, ordering: .relaxed)

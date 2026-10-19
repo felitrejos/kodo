@@ -9,6 +9,8 @@ struct CapsuleSlider: View {
     /// Shown inside the left end; tapping it calls `onToggleMute`.
     var showsGlyph = false
     var onToggleMute: (() -> Void)?
+    /// A faint tick, such as 100% on a slider that goes up to 200%.
+    var marker: Double?
     let onChange: (Double) -> Void
 
     var body: some View {
@@ -26,6 +28,13 @@ struct CapsuleSlider: View {
                     .shadow(color: .black.opacity(0.12), radius: 1, y: 0.5)
                     .frame(width: fill)
                     .animation(Design.animation, value: isMuted)
+                if let marker {
+                    Capsule()
+                        .fill(.secondary)
+                        .frame(width: 2, height: Design.sliderHeight / 2)
+                        .offset(x: minimumFill + (width - minimumFill) * marker - 1)
+                        .allowsHitTesting(false)
+                }
             }
             .contentShape(.capsule)
             .gesture(
@@ -42,6 +51,7 @@ struct CapsuleSlider: View {
             }
         }
         .frame(height: Design.sliderHeight)
+        .scrollToAdjust(nudge)
         .accessibilityRepresentation {
             Slider(value: Binding(get: { value }, set: { onChange($0) }), in: 0...1) {
                 Text(title)
@@ -51,6 +61,10 @@ struct CapsuleSlider: View {
 
     private func toggleMute() {
         onToggleMute?()
+    }
+
+    private func nudge(by delta: Double) {
+        onChange(min(max(value + delta, 0), 1))
     }
 }
 
