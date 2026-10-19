@@ -62,7 +62,7 @@ final class KodoModel {
     private(set) var defaultOutputID: AudioObjectID?
     /// Kodo's own entry in the Sound output list, while its driver is installed.
     private(set) var kodoOutput: AudioDevice?
-    private(set) var kodoOutputStatus = KodoOutput.status
+    private(set) var kodoOutputStatus: KodoOutput.Status
     private(set) var isInstallingKodoOutput = false
     /// Each output's own volume and mute, where it has them, read once a second so the
     /// sliders follow the volume keys and Control Center.
@@ -147,6 +147,7 @@ final class KodoModel {
         isPreview = false
         outputs = AudioDevice.all().filter(\.isOutput)
         kodoOutput = KodoOutput.device()
+        kodoOutputStatus = KodoOutput.status
         // Fine-tunes from before results had to agree may hold runs that disagreed wildly;
         // the approximate alignment is safer than those.
         for index in settings.groups.indices {
@@ -186,8 +187,9 @@ final class KodoModel {
     }
 
     /// Fixed sample data for designing the menu without touching any audio.
-    init(previewOutputs: [AudioDevice], apps: [AudioApp], settings: KodoSettings, isSyncOn: Bool, defaultOutputID: AudioObjectID?) {
+    init(previewOutputs: [AudioDevice], apps: [AudioApp], settings: KodoSettings, isSyncOn: Bool, defaultOutputID: AudioObjectID?, kodoOutputStatus: KodoOutput.Status = .unavailable) {
         isPreview = true
+        self.kodoOutputStatus = kodoOutputStatus
         outputs = previewOutputs
         self.apps = apps
         var settings = settings
@@ -436,6 +438,34 @@ final class KodoModel {
 
     // MARK: - Kodo in the Sound list
 
+    enum SoundMenuOffer {
+        case add, update
+    }
+
+    /// What to offer about the Sound list, once each: adding Kodo the first time you use
+    /// Speaker Sync, and updating it when this copy of Kodo carries a newer driver.
+    var soundMenuOffer: SoundMenuOffer? {
+        switch kodoOutputStatus {
+        case .notInstalled:
+            settings.syncEnabled && !settings.declinedSoundMenu ? .add : nil
+        case .outdated:
+            settings.skippedDriverVersion != KodoOutput.bundledVersion ? .update : nil
+        case .installed, .unavailable:
+            nil
+        }
+    }
+
+    func declineSoundMenuOffer() {
+        switch soundMenuOffer {
+        case .add:
+            settings.declinedSoundMenu = true
+        case .update:
+            settings.skippedDriverVersion = KodoOutput.bundledVersion
+        case nil:
+            break
+        }
+    }
+
     /// Set across the restart that follows adding Kodo to the Sound list.
     nonisolated private static let selectsKodoOutputKey = "selectsKodoOutputAtLaunch"
 
@@ -447,6 +477,8 @@ final class KodoModel {
     }
 
     func removeKodoOutput() {
+        // You took it out on purpose, so don't offer it again; More can still add it.
+        settings.declinedSoundMenu = true
         leaveKodoOutput()
         runKodoOutputChange(KodoOutput.uninstall)
     }

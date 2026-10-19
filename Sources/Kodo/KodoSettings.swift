@@ -28,6 +28,10 @@ struct KodoSettings: Codable, Equatable {
     /// The real speaker the Mac played through before you picked Kodo in Sound, to go back
     /// to when Sync turns off.
     var lastOutputUID: String?
+    /// You said Not Now to adding Kodo to the Sound list.
+    var declinedSoundMenu = false
+    /// The driver version you said Not Now to updating to.
+    var skippedDriverVersion: String?
 
     private static let key = "settings"
 
@@ -37,7 +41,7 @@ struct KodoSettings: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case groups, activeGroupID, syncEnabled, hiddenOutputs
-        case appVolumes, mutedApps, appRoutes, boostedApps, hiddenApps, keepsInSync, lastOutputUID
+        case appVolumes, mutedApps, appRoutes, boostedApps, hiddenApps, keepsInSync, lastOutputUID, declinedSoundMenu, skippedDriverVersion
         // From before groups existed, read once to build the first group.
         case selectedOutputs, volumes, mutedOutputs, measurements, trims, calibratedAt
     }
@@ -68,6 +72,8 @@ struct KodoSettings: Codable, Equatable {
         hiddenApps = try container.decodeIfPresent(Set<String>.self, forKey: .hiddenApps) ?? []
         keepsInSync = try container.decodeIfPresent(Bool.self, forKey: .keepsInSync) ?? false
         lastOutputUID = try container.decodeIfPresent(String.self, forKey: .lastOutputUID)
+        declinedSoundMenu = try container.decodeIfPresent(Bool.self, forKey: .declinedSoundMenu) ?? false
+        skippedDriverVersion = try container.decodeIfPresent(String.self, forKey: .skippedDriverVersion)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -83,6 +89,8 @@ struct KodoSettings: Codable, Equatable {
         try container.encode(hiddenApps, forKey: .hiddenApps)
         try container.encode(keepsInSync, forKey: .keepsInSync)
         try container.encodeIfPresent(lastOutputUID, forKey: .lastOutputUID)
+        try container.encode(declinedSoundMenu, forKey: .declinedSoundMenu)
+        try container.encodeIfPresent(skippedDriverVersion, forKey: .skippedDriverVersion)
     }
 
     /// The group the menu shows and Sync plays.

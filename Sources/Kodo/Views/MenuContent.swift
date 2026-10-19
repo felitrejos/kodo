@@ -8,6 +8,9 @@ struct MenuContent: View {
             HeaderView(model: model)
             GlassEffectContainer(spacing: Design.cardSpacing) {
                 VStack(spacing: Design.cardSpacing) {
+                    if let offer = model.soundMenuOffer {
+                        SoundMenuOfferCard(model: model, offer: offer)
+                    }
                     SpeakersCard(model: model)
                     AppsCard(model: model)
                 }
@@ -28,6 +31,10 @@ struct MenuContent: View {
 
 #Preview("Sync on") {
     MenuContent(model: PreviewData.model())
+}
+
+#Preview("Sound menu offer") {
+    MenuContent(model: PreviewData.model(kodoOutputStatus: .notInstalled))
 }
 
 #Preview("Sync off") {
