@@ -1,9 +1,11 @@
 import AVFoundation
+import AppKit
 import AudioToolbox
 import CoreAudio
 import KodoCore
 import Observation
 import ServiceManagement
+import WidgetKit
 
 @MainActor
 @Observable
@@ -58,6 +60,10 @@ final class KodoModel {
 
     private(set) var outputs: [AudioDevice] = []
     private(set) var defaultOutputID: AudioObjectID?
+    /// Kodo's own entry in the Sound output list, while its driver is installed.
+    private(set) var kodoOutput: AudioDevice?
+    private(set) var kodoOutputStatus = KodoOutput.status
+    private(set) var isInstallingKodoOutput = false
     /// Each output's own volume and mute, where it has them, read once a second so the
     /// sliders follow the volume keys and Control Center.
     private(set) var hardwareVolumes: [AudioObjectID: Float] = [:]
@@ -79,6 +85,7 @@ final class KodoModel {
             }
             settings.save()
             applyMix()
+            publishControlState()
         }
     }
 
@@ -125,11 +132,21 @@ final class KodoModel {
     @ObservationIgnored private var followedMute: Bool?
     /// Listens to the Mac output's volume and mute, so the group follows the keys at once.
     @ObservationIgnored private var outputLevelListener: (device: AudioObjectID, block: AudioObjectPropertyListenerBlock)?
+    /// When Kodo last set each speaker's volume. A Bluetooth speaker reports a fast drag back
+    /// late, as much as 0.6 s behind and in its own steps, so for a while after a write its
+    /// readings are echoes, not news.
+    @ObservationIgnored private var volumeWrites: [AudioObjectID: ContinuousClock.Instant] = [:]
+    private static let volumeSettleTime: Duration = .milliseconds(1500)
+    /// Takes the Mac output's settled level as the new balance once Kodo's writes stop echoing.
+    @ObservationIgnored private var outputLevelSettleTask: Task<Void, Never>?
     @ObservationIgnored private let isPreview: Bool
+    @ObservationIgnored private var terminationObserver: NSObjectProtocol?
+    @ObservationIgnored private var publishedControlState: SyncControlState?
 
     init() {
         isPreview = false
         outputs = AudioDevice.all().filter(\.isOutput)
+        kodoOutput = KodoOutput.device()
         // Fine-tunes from before results had to agree may hold runs that disagreed wildly;
         // the approximate alignment is safer than those.
         for index in settings.groups.indices {
@@ -139,13 +156,33 @@ final class KodoModel {
         settings.appVolumes = settings.appVolumes.filter { id, volume in
             !Self.isFullVolume(volume) || settings.mutedApps.contains(id) || settings.appRoutes[id] != nil
         }
+        // Just added to the Sound list: that's a wish to play through it.
+        if UserDefaults.standard.bool(forKey: Self.selectsKodoOutputKey) {
+            UserDefaults.standard.removeObject(forKey: Self.selectsKodoOutputKey)
+            settings.syncEnabled = settings.syncEnabled || kodoOutput != nil
+        }
+        // Sync was on when Kodo last quit, and quitting handed the Mac back to a speaker.
+        if settings.syncEnabled, let kodoOutput, AudioDevice.defaultOutputID != kodoOutput.id {
+            if let current = outputs.first(where: { $0.id == AudioDevice.defaultOutputID }) {
+                settings.lastOutputUID = current.uid
+            }
+            try? kodoOutput.makeDefaultOutput()
+        }
         refreshDefaultOutput()
         refreshApps()
         listenForDeviceChanges()
+        terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.leaveKodoOutput()
+                // Nothing plays once Kodo quits; Sync picks up again at the next launch.
+                self?.publishControlState(isOn: false)
+            }
+        }
         watchApps()
         reconcileEngines()
         rememberBalance()
         scheduleSyncChecks()
+        publishControlState()
     }
 
     /// Fixed sample data for designing the menu without touching any audio.
@@ -397,8 +434,119 @@ final class KodoModel {
     func setSyncOn(_ on: Bool) {
         problem = nil
         settings.syncEnabled = on
+        // With Kodo in the Sound list, Sync on means the Mac plays to Kodo.
+        if on, let kodoOutput {
+            if let current = outputs.first(where: { $0.id == defaultOutputID }) {
+                settings.lastOutputUID = current.uid
+            }
+            makeDefault(kodoOutput)
+        } else if !on {
+            leaveKodoOutput()
+        }
         reconcileEngines()
         rememberBalance()
+    }
+
+    // MARK: - Kodo in the Sound list
+
+    /// Set across the restart that follows adding Kodo to the Sound list.
+    nonisolated private static let selectsKodoOutputKey = "selectsKodoOutputAtLaunch"
+
+    func installKodoOutput() {
+        runKodoOutputChange {
+            try await KodoOutput.install()
+            UserDefaults.standard.set(true, forKey: Self.selectsKodoOutputKey)
+        }
+    }
+
+    func removeKodoOutput() {
+        leaveKodoOutput()
+        runKodoOutputChange(KodoOutput.uninstall)
+    }
+
+    private func runKodoOutputChange(_ change: @escaping @Sendable () async throws -> Void) {
+        guard !isInstallingKodoOutput else {
+            return
+        }
+        problem = nil
+        isInstallingKodoOutput = true
+        Task {
+            defer {
+                isInstallingKodoOutput = false
+                kodoOutputStatus = KodoOutput.status
+            }
+            do {
+                try await change()
+                KodoOutput.relaunch()
+            } catch {
+                problem = error.localizedDescription
+            }
+        }
+    }
+
+    /// Hands the Mac back to a real speaker if it's playing to Kodo, so it isn't left silent:
+    /// the one it played through before, else the group's lead, else the built-in speakers.
+    private func leaveKodoOutput() {
+        guard let kodoOutput, AudioDevice.defaultOutputID == kodoOutput.id else {
+            return
+        }
+        let target = outputs.first { $0.uid == settings.lastOutputUID }
+            ?? leadSpeaker
+            ?? outputs.first { $0.transport == .builtIn }
+            ?? outputs.first
+        if let target {
+            makeDefault(target)
+        }
+    }
+
+    private func makeDefault(_ output: AudioDevice) {
+        do {
+            try output.makeDefaultOutput()
+            defaultOutputID = output.id
+            listenToOutputLevel()
+        } catch {
+            problem = "Couldn't switch to \(output.name)."
+        }
+    }
+
+    /// Tells the Speaker Sync control in Control Center whether Sync is on, and for which group.
+    private func publishControlState(isOn: Bool? = nil) {
+        guard !isPreview else {
+            return
+        }
+        let state = SyncControlState(isOn: isOn ?? settings.syncEnabled, groupName: group.name)
+        guard state != publishedControlState else {
+            return
+        }
+        publishedControlState = state
+        state.write()
+        ControlCenter.shared.reloadControls(ofKind: SyncControlState.kind)
+    }
+
+    /// Apps playing to Kodo run at its rate; matching the lead's spares their audio a
+    /// conversion on the way to the group.
+    private func matchKodoOutputRate() {
+        guard let kodoOutput, let rate = leadSpeaker?.nominalSampleRate, kodoOutput.supports(sampleRate: rate) else {
+            return
+        }
+        try? kodoOutput.setNominalSampleRate(rate)
+    }
+
+    /// Picking Kodo in the Sound list turns Sync on; picking any other output turns it off.
+    private func defaultOutputMoved() {
+        // Restarting Core Audio for the driver moves the Mac's output by itself.
+        guard !isInstallingKodoOutput, let kodoOutput, let defaultOutputID else {
+            return
+        }
+        if defaultOutputID == kodoOutput.id {
+            if !settings.syncEnabled {
+                problem = nil
+                settings.syncEnabled = true
+            }
+        } else if let output = outputs.first(where: { $0.id == defaultOutputID }) {
+            settings.lastOutputUID = output.uid
+            settings.syncEnabled = false
+        }
     }
 
     /// With Sync on, adds or removes the speaker from the group. With it off, plays through it.
@@ -433,9 +581,9 @@ final class KodoModel {
         if hardwareMutes[output.id] == true {
             setHardwareMute(false, for: output)
         }
-        hardwareVolumes[output.id] = volume
-        if !isPreview {
-            output.setHardwareVolume(volume)
+        writeVolume(volume, to: output)
+        if output.id == defaultOutputID {
+            settleOutputLevel()
         }
         // Moving one speaker on purpose sets a new balance for the volume keys to keep.
         rememberBalance()
@@ -463,6 +611,14 @@ final class KodoModel {
 
     // MARK: - Volume keys
 
+    /// The device the Mac plays to, Kodo's own output included.
+    private var defaultOutput: AudioDevice? {
+        guard let defaultOutputID else {
+            return nil
+        }
+        return kodoOutput?.id == defaultOutputID ? kodoOutput : outputs.first { $0.id == defaultOutputID }
+    }
+
     /// Notes how loud each group speaker is next to the Mac's output, the balance the volume
     /// keys keep. Called after anything that changes it on purpose.
     private func rememberBalance() {
@@ -483,9 +639,10 @@ final class KodoModel {
     /// Kodo carries the same change over to every other speaker in the group, keeping their
     /// balance, so the keys turn the whole group up and down.
     private func followOutputLevel() {
-        guard !isPreview, let defaultOutputID, let output = outputs.first(where: { $0.id == defaultOutputID }) else {
+        guard !isPreview, outputLevelSettleTask == nil, let output = defaultOutput, !isSettling(output.id) else {
             return
         }
+        let defaultOutputID = output.id
         let volume = output.hardwareVolume
         let muted = output.hardwareMute
         defer {
@@ -512,11 +669,40 @@ final class KodoModel {
             // A speaker joined since the balance was noted: take its share from right now.
             let share = groupBalance[other.id] ?? (previous > 0.001 ? current / previous : 1)
             groupBalance[other.id] = share
-            let target = min(max(share * volume, 0), 1)
-            hardwareVolumes[other.id] = target
-            other.setHardwareVolume(target)
+            writeVolume(min(max(share * volume, 0), 1), to: other)
         }
         hardwareVolumes[defaultOutputID] = volume
+    }
+
+    private func writeVolume(_ volume: Float, to output: AudioDevice) {
+        hardwareVolumes[output.id] = volume
+        guard !isPreview else {
+            return
+        }
+        output.setHardwareVolume(volume)
+        volumeWrites[output.id] = .now
+    }
+
+    /// Whether a speaker may still be echoing Kodo's last volume change back.
+    private func isSettling(_ id: AudioObjectID) -> Bool {
+        volumeWrites[id].map { ContinuousClock.now - $0 < Self.volumeSettleTime } ?? false
+    }
+
+    /// Ignores the Mac output's volume changes until Kodo's own writes stop echoing back, then
+    /// takes the level the speaker settled on as the new balance, never as a key press.
+    private func settleOutputLevel() {
+        outputLevelSettleTask?.cancel()
+        outputLevelSettleTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.volumeSettleTime)
+            guard !Task.isCancelled, let self else {
+                return
+            }
+            outputLevelSettleTask = nil
+            if let output = defaultOutput, let settled = output.hardwareVolume {
+                hardwareVolumes[output.id] = settled
+            }
+            rememberBalance()
+        }
     }
 
     /// Watches the Mac output's own volume and mute, moving the watch when the output changes.
@@ -810,6 +996,9 @@ final class KodoModel {
             slots[destination] = nil
         }
         for (destination, setup) in needed where slots[destination] == nil {
+            if setup.capturesEverything {
+                matchKodoOutputRate()
+            }
             do {
                 let router = try TapRouter(capturesEverything: setup.capturesEverything)
                 _ = try router.route(apps(for: destination), excluding: processesCaptured(outsideOf: destination))
@@ -824,6 +1013,7 @@ final class KodoModel {
                 slots[destination] = nil
                 if destination == .kodo, setup.capturesEverything {
                     settings.syncEnabled = false
+                    leaveKodoOutput()
                 }
                 problem = error.localizedDescription
             }
@@ -1110,6 +1300,10 @@ final class KodoModel {
             outputs = current
             reportedLatencies = [:]
         }
+        let kodo = KodoOutput.device()
+        if kodo != kodoOutput {
+            kodoOutput = kodo
+        }
         refreshDefaultOutput()
         reconcileEngines()
         rememberBalance()
@@ -1119,6 +1313,7 @@ final class KodoModel {
         let id = AudioDevice.defaultOutputID
         if id != defaultOutputID {
             defaultOutputID = id
+            defaultOutputMoved()
         }
         refreshHardwareLevels()
         listenToOutputLevel()
@@ -1132,8 +1327,9 @@ final class KodoModel {
         followOutputLevel()
         var volumes: [AudioObjectID: Float] = [:]
         var mutes: [AudioObjectID: Bool] = [:]
-        for output in outputs {
-            volumes[output.id] = output.hardwareVolume
+        for output in outputs + [kodoOutput].compactMap(\.self) {
+            // Mid-drag a speaker still reports where the slider was a moment ago.
+            volumes[output.id] = isSettling(output.id) ? hardwareVolumes[output.id] : output.hardwareVolume
             mutes[output.id] = output.hardwareMute
         }
         if volumes != hardwareVolumes {

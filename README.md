@@ -59,6 +59,12 @@ over any slider to adjust it. It works whether or not Speaker Sync is on.
 **Send an app somewhere else.** Put the video call on your AirPods while the
 music keeps playing on the speakers.
 
+**Right in Control Center.** Add Kodo to your Mac's Sound output list and it
+sits next to your other speakers: pick Kodo to play the group, pick anything
+else to go back. Its volume slider turns the whole group up and down. There's
+also a Speaker Sync control, with the taiko drum, that you can add to Control
+Center or the menu bar through Edit Controls.
+
 **Switch outputs in a click.** With Speaker Sync off, the speaker list works
 like Control Center's: click a speaker to play through it, and slide to set its
 volume.
@@ -127,7 +133,13 @@ music, but videos can look slightly out of sync while a Bluetooth speaker is in
 the group.
 
 **What happens when I quit Kodo?**
-Your Mac's audio goes straight back to normal.
+Your Mac's audio goes straight back to normal. If it was playing to Kodo, it
+moves back to the speaker you used before.
+
+**Why does adding Kodo to the Sound list ask for my password?**
+Kodo's entry there comes from a small audio driver, which lives in a system
+folder. To take it out again, choose **More → Remove Kodo from Sound Output**.
+Either way, your audio pauses for a second while macOS reloads its drivers.
 
 ## The name
 

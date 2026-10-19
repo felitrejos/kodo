@@ -25,6 +25,10 @@ struct KodoSettings: Codable, Equatable {
     /// Whether Kodo may listen to the music now and then to keep a group in step.
     var keepsInSync = false
 
+    /// The real speaker the Mac played through before you picked Kodo in Sound, to go back
+    /// to when Sync turns off.
+    var lastOutputUID: String?
+
     private static let key = "settings"
 
     init() {
@@ -33,7 +37,7 @@ struct KodoSettings: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case groups, activeGroupID, syncEnabled, hiddenOutputs
-        case appVolumes, mutedApps, appRoutes, boostedApps, hiddenApps, keepsInSync
+        case appVolumes, mutedApps, appRoutes, boostedApps, hiddenApps, keepsInSync, lastOutputUID
         // From before groups existed, read once to build the first group.
         case selectedOutputs, volumes, mutedOutputs, measurements, trims, calibratedAt
     }
@@ -63,6 +67,7 @@ struct KodoSettings: Codable, Equatable {
         boostedApps = try container.decodeIfPresent(Set<String>.self, forKey: .boostedApps) ?? []
         hiddenApps = try container.decodeIfPresent(Set<String>.self, forKey: .hiddenApps) ?? []
         keepsInSync = try container.decodeIfPresent(Bool.self, forKey: .keepsInSync) ?? false
+        lastOutputUID = try container.decodeIfPresent(String.self, forKey: .lastOutputUID)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -77,6 +82,7 @@ struct KodoSettings: Codable, Equatable {
         try container.encode(boostedApps, forKey: .boostedApps)
         try container.encode(hiddenApps, forKey: .hiddenApps)
         try container.encode(keepsInSync, forKey: .keepsInSync)
+        try container.encodeIfPresent(lastOutputUID, forKey: .lastOutputUID)
     }
 
     /// The group the menu shows and Sync plays.

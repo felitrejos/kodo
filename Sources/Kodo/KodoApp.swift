@@ -35,15 +35,29 @@ enum Entry {
 }
 
 struct KodoApp: App {
-    @State private var model = KodoModel()
+    @NSApplicationDelegateAdaptor private var delegate: AppDelegate
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(model: model)
+            MenuContent(model: delegate.model)
         } label: {
-            Image(nsImage: MenuBarIcon.image(model.menuBarStyle))
+            Image(nsImage: MenuBarIcon.image(delegate.model.menuBarStyle))
                 .accessibilityLabel("Kodo")
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    let model = KodoModel()
+
+    /// The Speaker Sync control in Control Center switches Sync with a `kodo://` link.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            if let on = SyncControlState.requestedSync(in: url) {
+                model.setSyncOn(on)
+            }
+        }
     }
 }
