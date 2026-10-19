@@ -76,8 +76,10 @@ combined by median, become a per-speaker delay in the shared delay line.
 
 ## Branches and releases
 
-Work happens on `dev`, and every push there runs the tests. `main` only takes
-pull requests whose tests pass.
+`main` holds the released version, which is what the repository page shows.
+Work happens on `dev`, so branch from `dev` and open pull requests against it;
+every push there runs the tests. `main` only takes pull requests from `dev`
+whose tests pass.
 
 To release, bump `CFBundleShortVersionString` (and `CFBundleVersion`) in
 `Resources/Info.plist` on `dev`, then open a pull request to `main`:
