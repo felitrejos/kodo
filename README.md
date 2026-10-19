@@ -65,8 +65,9 @@ volume.
 connected, its sample rate and format, and how Kodo keeps it in step. Hide the
 devices you never use.
 
-**Stays out of the way.** Kodo lives in the menu bar, its icon shows at a
-glance whether Sync is on, and it remembers everything between launches.
+**Stays out of the way.** Kodo lives in the menu bar as a little taiko drum
+that shows at a glance whether Sync is on. Hide the apps and devices you never
+want to see, and Kodo remembers everything between launches.
 
 <p align="center">
   <picture>

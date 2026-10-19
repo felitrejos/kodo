@@ -14,18 +14,20 @@ struct AppRow: View {
                 .frame(width: Design.appIconSize, height: Design.appIconSize)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
-                    Text(app.name)
-                        .lineLimit(1)
-                    PlayingIndicator(isPlaying: app.isPlaying)
-                }
+                Text(app.name)
+                    .lineLimit(1)
+                // The detail line says what's special about the app; otherwise it shows the
+                // app playing, which leaves the whole name line for the name.
                 if let detail {
                     Text(detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                } else {
+                    PlayingIndicator(isPlaying: app.isPlaying)
                 }
             }
+            .layoutPriority(1)
             Spacer(minLength: 4)
             Menu("Play \(app.name) Through", systemImage: model.route(for: app)?.symbolName ?? "arrow.triangle.branch") {
                 RouteMenu(model: model, app: app)
@@ -46,9 +48,9 @@ struct AppRow: View {
                 onToggleMute: toggleMute,
                 marker: model.isBoosted(app) ? 0.5 : nil,
                 onChange: setVolume)
-            .frame(width: Design.rowSliderWidth + 8)
+            .frame(width: Design.appSliderWidth)
         }
-        .opacity(app.isPlaying ? 1 : 0.6)
+        .opacity(app.isPlaying && !model.isHidden(app) ? 1 : 0.6)
         .contentShape(.rect)
         .onHover(perform: setHovering)
         .contextMenu {
@@ -58,10 +60,14 @@ struct AppRow: View {
             Toggle("Boost to 200%", isOn: Binding(get: { model.isBoosted(app) }, set: { model.setBoosted($0, for: app) }))
             Divider()
             Button("Reset", systemImage: "arrow.counterclockwise", action: reset)
+            Button(model.isHidden(app) ? "Show in Kodo" : "Hide App", systemImage: model.isHidden(app) ? "eye" : "eye.slash", action: toggleHidden)
         }
     }
 
     private var detail: String? {
+        if model.isHidden(app) {
+            return "Hidden"
+        }
         if let route = model.route(for: app) {
             return "On \(route.name)"
         }
@@ -85,5 +91,11 @@ struct AppRow: View {
 
     private func reset() {
         model.reset(app)
+    }
+
+    private func toggleHidden() {
+        withAnimation(Design.animation) {
+            model.setHidden(!model.isHidden(app), for: app)
+        }
     }
 }

@@ -41,8 +41,7 @@ struct KodoApp: App {
         MenuBarExtra {
             MenuContent(model: model)
         } label: {
-            let symbol = model.menuBarSymbol
-            Image(systemName: symbol.name, variableValue: symbol.level)
+            Image(nsImage: MenuBarIcon.image(model.menuBarStyle))
                 .accessibilityLabel("Kodo")
         }
         .menuBarExtraStyle(.window)

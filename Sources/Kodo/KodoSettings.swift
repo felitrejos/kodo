@@ -19,6 +19,8 @@ struct KodoSettings: Codable, Equatable {
     var appRoutes: [String: String] = [:]
     /// Apps whose slider goes up to 200%.
     var boostedApps: Set<String> = []
+    /// Apps you hid from the menu. Kodo leaves them alone at full volume.
+    var hiddenApps: Set<String> = []
 
     /// Whether Kodo may listen to the music now and then to keep a group in step.
     var keepsInSync = false
@@ -31,7 +33,7 @@ struct KodoSettings: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case groups, activeGroupID, syncEnabled, hiddenOutputs
-        case appVolumes, mutedApps, appRoutes, boostedApps, keepsInSync
+        case appVolumes, mutedApps, appRoutes, boostedApps, hiddenApps, keepsInSync
         // From before groups existed, read once to build the first group.
         case selectedOutputs, volumes, mutedOutputs, measurements, trims, calibratedAt
     }
@@ -59,6 +61,7 @@ struct KodoSettings: Codable, Equatable {
         mutedApps = try container.decodeIfPresent(Set<String>.self, forKey: .mutedApps) ?? []
         appRoutes = try container.decodeIfPresent([String: String].self, forKey: .appRoutes) ?? [:]
         boostedApps = try container.decodeIfPresent(Set<String>.self, forKey: .boostedApps) ?? []
+        hiddenApps = try container.decodeIfPresent(Set<String>.self, forKey: .hiddenApps) ?? []
         keepsInSync = try container.decodeIfPresent(Bool.self, forKey: .keepsInSync) ?? false
     }
 
@@ -72,6 +75,7 @@ struct KodoSettings: Codable, Equatable {
         try container.encode(mutedApps, forKey: .mutedApps)
         try container.encode(appRoutes, forKey: .appRoutes)
         try container.encode(boostedApps, forKey: .boostedApps)
+        try container.encode(hiddenApps, forKey: .hiddenApps)
         try container.encode(keepsInSync, forKey: .keepsInSync)
     }
 

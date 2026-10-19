@@ -47,6 +47,7 @@ final class KodoModel {
     /// When Keep in Sync last listened, and what it found.
     private(set) var lastSyncCheck: (date: Date, result: SyncChecker.Result)?
     var showsHiddenOutputs = false
+    var showsHiddenApps = false
     private(set) var settings = KodoSettings.load() {
         didSet {
             guard !isPreview else {
@@ -63,6 +64,14 @@ final class KodoModel {
     @ObservationIgnored private var lastHeard: [String: Date] = [:]
     /// How long a paused app keeps its row. Adjusted apps keep theirs while they run.
     private static let pausedAppLinger: TimeInterval = 10 * 60
+    /// Apps that have played long enough to be listed. Observed, unlike `lastHeard`, and
+    /// changing only when an app first qualifies, so the row appears right away.
+    private var heardApps: Set<String> = []
+    /// When each app started its current stretch of playing.
+    @ObservationIgnored private var playingSince: [String: Date] = [:]
+    /// How long an app has to play before it gets a row, so a dictation chime or a
+    /// notification doesn't add one.
+    private static let playingToBeListed: TimeInterval = 2
 
     @ObservationIgnored private var slots: [Destination: EngineSlot] = [:]
     @ObservationIgnored private var calibrationTask: Task<Void, Never>?
@@ -105,6 +114,7 @@ final class KodoModel {
         defaultOutputVolume = 0.6
         defaultOutputMuted = false
         lastHeard = Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Date.now) })
+        heardApps = Set(apps.map(\.id))
     }
 
     // MARK: - State for the menu
@@ -161,25 +171,27 @@ final class KodoModel {
         activeOutputs.count > 1 && activeOutputs.contains { group.measurements[$0.uid] == nil }
     }
 
-    /// Apps worth a row: playing now, played in the last few minutes, or adjusted.
+    /// Apps worth a row: playing for more than a moment, played in the last few minutes, or
+    /// adjusted. Hidden apps only while you ask to see them.
     var visibleApps: [AudioApp] {
         let cutoff = Date.now.addingTimeInterval(-Self.pausedAppLinger)
-        return apps.filter { $0.isPlaying || isAdjusted($0) || (lastHeard[$0.id] ?? .distantPast) > cutoff }
+        return apps.filter { app in
+            guard showsHiddenApps || !isHidden(app) else {
+                return false
+            }
+            return isAdjusted(app) || (heardApps.contains(app.id) && (lastHeard[app.id] ?? .distantPast) > cutoff)
+        }
             .sorted { lhs, rhs in
                 lhs.isPlaying != rhs.isPlaying ? lhs.isPlaying : lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
     }
 
-    /// The menu bar glyph: two speakers while Sync plays, otherwise the output's own level.
-    var menuBarSymbol: (name: String, level: Double?) {
+    /// The menu bar drum: solid while Sync plays, outlined otherwise, slashed when muted.
+    var menuBarStyle: MenuBarIcon.Style {
         if isSyncPlaying {
-            let allMuted = activeOutputs.allSatisfy { group.mutedOutputs.contains($0.uid) }
-            return allMuted ? ("speaker.slash.fill", nil) : ("hifispeaker.2.fill", nil)
+            return activeOutputs.allSatisfy { group.mutedOutputs.contains($0.uid) } ? .muted : .filled
         }
-        if defaultOutputMuted == true {
-            return ("speaker.slash.fill", nil)
-        }
-        return ("speaker.wave.3.fill", Double(defaultOutputVolume ?? 1))
+        return defaultOutputMuted == true ? .muted : .outlined
     }
 
     /// Whether a speaker is lit: part of the group with Sync on, the Mac's output with it off.
@@ -230,6 +242,14 @@ final class KodoModel {
 
     func isMuted(_ app: AudioApp) -> Bool {
         settings.mutedApps.contains(app.id)
+    }
+
+    func isHidden(_ app: AudioApp) -> Bool {
+        settings.hiddenApps.contains(app.id)
+    }
+
+    var hiddenAppCount: Int {
+        apps.filter(isHidden).count
     }
 
     func isBoosted(_ app: AudioApp) -> Bool {
@@ -416,6 +436,19 @@ final class KodoModel {
         settings.appRoutes[app.id] = output?.uid
         reconcileEngines()
         scheduleRelease(of: app)
+    }
+
+    /// Hides an app from the menu and puts it back to normal, so Kodo leaves it alone.
+    func setHidden(_ hidden: Bool, for app: AudioApp) {
+        if hidden {
+            settings.hiddenApps.insert(app.id)
+            reset(app)
+        } else {
+            settings.hiddenApps.remove(app.id)
+        }
+        if hiddenAppCount == 0 {
+            showsHiddenApps = false
+        }
     }
 
     /// Puts the app back to normal: full volume, unmuted, played wherever Kodo plays.
@@ -687,8 +720,20 @@ final class KodoModel {
 
     private func refreshApps() {
         let current = AudioAppCatalog.current()
-        for app in current where app.isPlaying {
-            lastHeard[app.id] = .now
+        let now = Date.now
+        for app in current {
+            guard app.isPlaying else {
+                playingSince[app.id] = nil
+                continue
+            }
+            let since = playingSince[app.id] ?? now
+            playingSince[app.id] = since
+            if now.timeIntervalSince(since) >= Self.playingToBeListed {
+                lastHeard[app.id] = now
+                if !heardApps.contains(app.id) {
+                    heardApps.insert(app.id)
+                }
+            }
         }
         if current != apps {
             apps = current

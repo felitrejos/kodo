@@ -52,7 +52,9 @@ final class UnisonEngine {
             // CFBoolean, which the drift key silently ignores, leaving the speaker uncorrected.
             kAudioAggregateDeviceIsPrivateKey: 1,
             kAudioAggregateDeviceIsStackedKey: 0,
-            kAudioAggregateDeviceTapAutoStartKey: 1,
+            // Auto-start would hold the engine until a tapped app makes a sound, so in a quiet
+            // room the fine-tune chirp never got to play.
+            kAudioAggregateDeviceTapAutoStartKey: 0,
             kAudioAggregateDeviceSubDeviceListKey: outputs.map { output in
                 [
                     kAudioSubDeviceUIDKey: output.uid,
