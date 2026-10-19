@@ -11,17 +11,30 @@ struct Measurement: Codable, Equatable {
     var strength: Float
 }
 
+/// What a fine-tune found for each speaker.
+struct CalibrationOutcome {
+    var measurements: [String: Measurement] = [:]
+    /// Heard, but the runs disagreed too much to trust any of them.
+    var unsteady: [String] = []
+    /// Never heard clearly at all.
+    var unheard: [String] = []
+}
+
 /// Plays a chirp through each output in turn and times its arrival at the microphone.
 @MainActor
 struct Calibrator {
     /// Several runs per output, interleaved so a passing noise only spoils one of them.
-    static let runs = 3
+    static let runs = 5
+    /// Runs that agree this closely count as the same answer.
+    static let agreement = 0.003
+    /// How many of the runs must agree before the answer is trusted.
+    static let minimumAgreeing = 3
 
     let engine: UnisonEngine
     let microphone: AudioDevice
 
     /// - Parameter progress: Called with the output being measured and the fraction done.
-    func measure(progress: (AudioDevice, Double) -> Void) async throws -> [String: Measurement] {
+    func measure(progress: (AudioDevice, Double) -> Void) async throws -> CalibrationOutcome {
         // How long after the chirp left to keep listening: the chirp itself plus the slowest
         // plausible output. AirPlay buffers about two seconds; Bluetooth stays well under one.
         let listenSeconds = Chirp.duration + (engine.outputs.contains { $0.transport == .airPlay } ? 3.0 : 1.0)
@@ -63,14 +76,19 @@ struct Calibrator {
             }
         }
 
-        var results: [String: Measurement] = [:]
+        var outcome = CalibrationOutcome()
         for output in engine.outputs {
-            guard let runs = latencies[output.uid], let latency = AlignmentPlan.combine(runs) else {
+            guard let runs = latencies[output.uid], !runs.isEmpty else {
+                outcome.unheard.append(output.uid)
+                continue
+            }
+            guard let agreed = AlignmentPlan.consensus(runs, tolerance: Self.agreement, minimumAgreeing: Self.minimumAgreeing) else {
+                outcome.unsteady.append(output.uid)
                 continue
             }
             let strength = strengths[output.uid, default: []].max() ?? 0
-            results[output.uid] = Measurement(latency: latency, spread: AlignmentPlan.spread(runs), strength: strength)
+            outcome.measurements[output.uid] = Measurement(latency: agreed.value, spread: agreed.spread, strength: strength)
         }
-        return results
+        return outcome
     }
 }

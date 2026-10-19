@@ -196,3 +196,16 @@ struct SyncCheckTests {
         #expect(SyncCheck.corrections(for: ["a": 0.20, "b": 0.30]) == nil)
     }
 }
+
+struct ConsensusTests {
+    @Test func ignoresARunThatLandedElsewhere() throws {
+        let result = try #require(AlignmentPlan.consensus([0.360, 0.459, 0.3605, 0.361, 0.3601], tolerance: 0.003, minimumAgreeing: 3))
+        #expect(abs(result.value - 0.3603) < 0.0005)
+        #expect(result.spread < 0.002)
+    }
+
+    @Test func refusesWhenRunsDisagree() {
+        #expect(AlignmentPlan.consensus([0.36, 0.46, 0.41, 0.39, 0.50], tolerance: 0.003, minimumAgreeing: 3) == nil)
+        #expect(AlignmentPlan.consensus([0.36, 0.3601], tolerance: 0.003, minimumAgreeing: 3) == nil)
+    }
+}

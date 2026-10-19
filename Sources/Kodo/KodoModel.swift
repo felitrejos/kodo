@@ -85,12 +85,19 @@ final class KodoModel {
     /// How long an app has to sit at 100% before Kodo stops capturing it. Long enough that
     /// dragging around full volume doesn't keep tapping and untapping the app.
     private static let releaseDelay: Duration = .seconds(2)
+    /// Saved measurements whose runs disagreed by more than this are dropped at launch.
+    private static let trustedSpread = 0.005
     @ObservationIgnored private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
     @ObservationIgnored private let isPreview: Bool
 
     init() {
         isPreview = false
         outputs = AudioDevice.all().filter(\.isOutput)
+        // Fine-tunes from before results had to agree may hold runs that disagreed wildly;
+        // the approximate alignment is safer than those.
+        for index in settings.groups.indices {
+            settings.groups[index].measurements = settings.groups[index].measurements.filter { $0.value.spread <= Self.trustedSpread }
+        }
         // An app left at full volume needs nothing from Kodo; don't capture it at launch.
         settings.appVolumes = settings.appVolumes.filter { id, volume in
             !Self.isFullVolume(volume) || settings.mutedApps.contains(id) || settings.appRoutes[id] != nil
@@ -790,25 +797,38 @@ final class KodoModel {
         calibration = CalibrationProgress(output: "", fraction: 0)
         defer { calibration = nil }
         do {
-            let results = try await calibrator.measure { [weak self] output, fraction in
+            let outcome = try await calibrator.measure { [weak self] output, fraction in
                 self?.calibration = CalibrationProgress(output: output.name, fraction: fraction)
             }
             guard group.id == groupID else {
                 return
             }
-            settings.activeGroup.measurements.merge(results) { $1 }
+            settings.activeGroup.measurements.merge(outcome.measurements) { $1 }
+            // A speaker without a steady answer goes back to the approximate alignment rather
+            // than keeping an old number that may be just as wrong.
+            for uid in outcome.unsteady + outcome.unheard {
+                settings.activeGroup.measurements[uid] = nil
+            }
             // Fresh measurements start clean; old automatic corrections no longer apply.
             settings.activeGroup.drifts = [:]
             settings.activeGroup.calibratedAt = .now
-            let missed = slot.engine.outputs.filter { results[$0.uid] == nil }.map(\.name)
-            if !missed.isEmpty {
-                problem = "Couldn't hear \(missed.formatted(.list(type: .and))). Turn it up or move it closer, then try again."
-            }
+            problem = calibrationProblem(outcome, outputs: slot.engine.outputs)
         } catch is CancellationError {
             // Stopped or rebuilt on purpose; nothing to report.
         } catch {
             problem = error.localizedDescription
         }
+    }
+
+    private func calibrationProblem(_ outcome: CalibrationOutcome, outputs: [AudioDevice]) -> String? {
+        let names = { (uids: [String]) in outputs.filter { uids.contains($0.uid) }.map(\.name).formatted(.list(type: .and)) }
+        if !outcome.unsteady.isEmpty {
+            return "\(names(outcome.unsteady)) gave a different answer each time, so it stays roughly in step for now. Move it or the Mac a little closer and fine-tune again."
+        }
+        if !outcome.unheard.isEmpty {
+            return "Couldn't hear \(names(outcome.unheard)). Turn it up or move it closer, then try again."
+        }
+        return nil
     }
 
     private func microphoneAllowed() async -> Bool {

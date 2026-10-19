@@ -33,6 +33,30 @@ public enum AlignmentPlan {
         return sorted.count.isMultiple(of: 2) ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
     }
 
+    /// The value most runs agree on, or nil when too few agree to trust any of them.
+    ///
+    /// A Bluetooth speaker far from the microphone can land a run somewhere else entirely,
+    /// and a median of disagreeing runs is still wrong. So this looks for the biggest set of
+    /// runs within `tolerance` of each other and takes their median, but only if at least
+    /// `minimumAgreeing` of them agree.
+    public static func consensus(_ runs: [Double], tolerance: Double, minimumAgreeing: Int) -> (value: Double, spread: Double)? {
+        let sorted = runs.sorted()
+        var best: ArraySlice<Double> = []
+        var start = 0
+        for end in sorted.indices {
+            while sorted[end] - sorted[start] > tolerance {
+                start += 1
+            }
+            if end - start + 1 > best.count {
+                best = sorted[start...end]
+            }
+        }
+        guard best.count >= minimumAgreeing, let value = combine(Array(best)) else {
+            return nil
+        }
+        return (value, spread(Array(best)))
+    }
+
     /// How far apart the runs were, so the UI can flag a shaky calibration.
     public static func spread(_ measurements: [Double]) -> Double {
         guard let low = measurements.min(), let high = measurements.max() else {
